@@ -103,6 +103,12 @@ def get_db():
     finally:
         db.close()
 
+# --- HELPER: Binarize image to erase background watermark ---
+def clean_image_for_ocr(pil_img):
+    gray = pil_img.convert('L')
+    bw = gray.point(lambda p: 255 if p > 160 else 0) # Erase gray watermark background
+    return bw
+
 # --- FRONTEND ROUTE ---
 @app.get("/")
 def serve_frontend(username: str = Depends(authenticate_admin)):
@@ -122,131 +128,149 @@ async def upload_marksheet(
         
     extracted_count = 0
     try:
-        pages_text = []
-
-        # Fast Native Strategy 1: pypdf (Takes 0.01s)
-        if pypdf:
-            try:
-                reader = pypdf.PdfReader(temp_pdf_path)
-                for p in reader.pages:
-                    pages_text.append(p.extract_text() or "")
-            except Exception as e:
-                print(f"pypdf error: {e}")
-                pages_text = []
-
-        # Fast Native Strategy 2: pdfplumber (Fallback if pypdf was empty)
-        if not pages_text or all(len(t.strip()) < 20 for t in pages_text):
-            pages_text = []
-            with pdfplumber.open(temp_pdf_path) as pdf:
-                for page in pdf.pages:
-                    pages_text.append(page.extract_text() or "")
-
-        # Process each page
-        for page_num, text in enumerate(pages_text):
-            try:
-                if not text or len(text.strip()) < 20:
-                    continue
-
-                text_clean = re.sub(r'[—–_~]', '-', text)
-
-                # 1. Registration Number Match (CU Format: 3 digits - 4 digits - 4 digits - 2 digits)
-                reg_match = re.search(r'(\d{3}[\s\-]*\d{4}[\s\-]*\d{4}[\s\-]*\d{2})', text_clean)
-                if not reg_match:
-                    continue
-                
-                raw_reg = reg_match.group(1)
-                reg_digits = re.sub(r'\D', '', raw_reg)
-                if len(reg_digits) == 13:
-                    reg_no = f"{reg_digits[:3]}-{reg_digits[3:7]}-{reg_digits[7:11]}-{reg_digits[11:]}"
-                else:
-                    reg_no = re.sub(r'\s+', '', raw_reg)
-
-                # 2. Roll Number Match (CU Format: 6 digits - 2 digits - 4 digits)
-                roll_match = re.search(r'(\d{6}[\s\-]*\d{2}[\s\-]*\d{4})', text_clean)
-                roll_no = "Unknown"
-                if roll_match:
-                    raw_roll = roll_match.group(1)
-                    roll_digits = re.sub(r'\D', '', raw_roll)
-                    if len(roll_digits) == 12:
-                        roll_no = f"{roll_digits[:6]}-{roll_digits[6:8]}-{roll_digits[8:]}"
-                    else:
-                        roll_no = re.sub(r'\s+', '', raw_roll)
-
-                # 3. Student Name Match
-                name_match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text_clean, re.IGNORECASE)
-                name = name_match.group(1).strip() if name_match else "Unknown Student"
-
-                # 4. Course Title Match
-                course_match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text_clean, re.IGNORECASE)
-                course = course_match.group(0).strip() if course_match else "B.A. (Honours)"
-
+        with pdfplumber.open(temp_pdf_path) as pdf:
+            for page_num, page in enumerate(pdf.pages):
                 try:
-                    admission_year = "20" + reg_no.split("-")[-1]
-                except:
-                    admission_year = "Unknown"
-
-                # 5. Extract Semester Table Rows
-                sems_data = []
-                for line in text_clean.splitlines():
-                    line_str = line.strip()
-                    sem_m = re.search(r'^(I|II|III|IV|V|VI)\b\s*(\d{4})?\s*(\d+)?\s*(\d+)?\s*(\d+)?\s*([\d\.]+|N\.?A\.?)?', line_str)
-                    if sem_m:
-                        s_name = sem_m.group(1)
-                        s_year = sem_m.group(2) or ""
-                        s_marks = sem_m.group(4) or ""
-                        s_sgpa = sem_m.group(6) or ""
-                        sems_data.append((s_name, s_year, s_marks, s_sgpa))
-
-                # 6. Extract Final CGPA & Grade
-                overall_cgpa = "N.A."
-                overall_grade = "Fail / Semester Not Cleared"
-
-                cgpa_match = re.search(r'VI\b.*?\b([\d\.]+)\s+\d+\s+([\d\.]+)\s+([A-Z\+\-]+)', text_clean)
-                if cgpa_match:
-                    overall_cgpa = cgpa_match.group(2)
-                    overall_grade = cgpa_match.group(3)
-                else:
-                    cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text_clean, re.IGNORECASE)
-                    if cgpa_sub: overall_cgpa = cgpa_sub.group(1)
-                    grade_sub = re.search(r'Letter\s*Grade\s*[\:\s]*([A-Z\+\-]+)', text_clean, re.IGNORECASE)
-                    if grade_sub: overall_grade = grade_sub.group(1)
-
-                # 7. Database Upsert
-                existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
-                if existing_student:
-                    existing_student.name = name if name != "Unknown Student" else existing_student.name
-                    existing_student.roll_no = roll_no if roll_no != "Unknown" else existing_student.roll_no
-                    existing_student.course = course
-                    existing_student.overall_cgpa = overall_cgpa
-                    existing_student.overall_grade = overall_grade
+                    # 1. Native Digital Text Extraction
+                    text = page.extract_text() or ""
                     
-                    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-                    for sem in sems_data:
-                        db.add(SemesterRecord(
-                            registration_no=reg_no, semester=sem[0], year=sem[1], 
-                            marks_obtained=sem[2], sgpa=sem[3]
-                        ))
-                else:
-                    student = Student(
-                        registration_no=reg_no, 
-                        roll_no=roll_no, 
-                        name=name, 
-                        admission_year=admission_year, 
-                        course=course, 
-                        overall_cgpa=overall_cgpa, 
-                        overall_grade=overall_grade
-                    )
-                    db.add(student)
-                    for sem in sems_data:
-                        db.add(SemesterRecord(
-                            registration_no=reg_no, semester=sem[0], year=sem[1], 
-                            marks_obtained=sem[2], sgpa=sem[3]
-                        ))
+                    # 2. Scanned PDF Fallback: Fast binarized OCR if text is less than 30 chars
+                    if len(text.strip()) < 30:
+                        print(f"Page {page_num+1}: Native text empty. Triggering fast OCR...")
+                        try:
+                            raw_img = page.to_image(resolution=100).original
+                            cleaned_img = clean_image_for_ocr(raw_img)
+                            text = pytesseract.image_to_string(cleaned_img, lang="eng", config="--psm 6")
+                            del raw_img, cleaned_img
+                            gc.collect()
+                        except Exception as ocr_err:
+                            print(f"OCR Error on page {page_num+1}: {ocr_err}")
+                            continue
+
+                    text_clean = re.sub(r'[—–_~]', '-', text)
+
+                    # 3. Registration Number Extraction (With digit sanitization)
+                    reg_no = None
+                    reg_match = re.search(r'(?:Registration|Regn|Reg)[\s\.\:\-]*No[\.\:\s]*([0-9OoQIl\-\s\.\/]+)', text_clean, re.IGNORECASE)
+                    if reg_match:
+                        raw_val = reg_match.group(1).replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
+                        digits = re.sub(r'\D', '', raw_val)
+                        if len(digits) >= 13:
+                            digits = digits[:13]
+                            reg_no = f"{digits[:3]}-{digits[3:7]}-{digits[7:11]}-{digits[11:]}"
+
+                    # Fallback pattern search for CU Registration: XXX-XXXX-XXXX-XX
+                    if not reg_no:
+                        text_digit_fixed = text_clean.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
+                        cu_pattern = re.search(r'\b(\d{3})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{2})\b', text_digit_fixed)
+                        if cu_pattern:
+                            g = cu_pattern.groups()
+                            reg_no = f"{g[0]}-{g[1]}-{g[2]}-{g[3]}"
+
+                    if not reg_no:
+                        print(f"Page {page_num+1}: Registration number not found.")
+                        continue 
+
+                    # 4. Roll Number Extraction
+                    roll_no = "Unknown"
+                    roll_match = re.search(r'Roll[\s\&\.]*No[\.\:\s]*([0-9OoQIl\-\s\.\/]+)', text_clean, re.IGNORECASE)
+                    if roll_match:
+                        raw_val = roll_match.group(1).replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
+                        digits = re.sub(r'\D', '', raw_val)
+                        if len(digits) >= 12:
+                            digits = digits[:12]
+                            roll_no = f"{digits[:6]}-{digits[6:8]}-{digits[8:]}"
+
+                    if roll_no == "Unknown":
+                        text_digit_fixed = text_clean.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
+                        cu_roll_p = re.search(r'\b(\d{6})[\-\s\.\/]*(\d{2})[\-\s\.\/]*(\d{4})\b', text_digit_fixed)
+                        if cu_roll_p:
+                            g = cu_roll_p.groups()
+                            roll_no = f"{g[0]}-{g[1]}-{g[2]}"
+
+                    # 5. Student Name Extraction
+                    name = "Unknown Student"
+                    name_match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text_clean, re.IGNORECASE)
+                    if name_match:
+                        raw_name = re.sub(r'[^A-Za-z\s\.]', '', name_match.group(1)).strip()
+                        if len(raw_name) > 2:
+                            name = raw_name
+
+                    # 6. Course Title
+                    course = "B.A. (Honours)"
+                    course_match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text_clean, re.IGNORECASE)
+                    if course_match:
+                        course = course_match.group(0).strip()
+
+                    try:
+                        admission_year = "20" + reg_no.split("-")[-1]
+                    except:
+                        admission_year = "Unknown"
+
+                    # 7. Extract Semester Performance Table
+                    sems_data = []
+                    for line in text_clean.splitlines():
+                        line_str = line.strip()
+                        sem_m = re.search(r'^(I|II|III|IV|V|VI)\b\s*(\d{4})?\s*(\d+)?\s*(\d+)?\s*(\d+)?\s*([\d\.]+|N\.?A\.?)?', line_str)
+                        if sem_m:
+                            s_name = sem_m.group(1)
+                            s_year = sem_m.group(2) or ""
+                            s_marks = sem_m.group(4) or ""
+                            s_sgpa = sem_m.group(6) or ""
+                            sems_data.append((s_name, s_year, s_marks, s_sgpa))
+
+                    # 8. Extract Final CGPA & Grade
+                    overall_cgpa = "N.A."
+                    overall_grade = "Fail / Semester Not Cleared"
+
+                    cgpa_match = re.search(r'VI\b.*?\b([\d\.]+)\s+\d+\s+([\d\.]+)\s+([A-Z\+\-]+)', text_clean)
+                    if cgpa_match:
+                        overall_cgpa = cgpa_match.group(2)
+                        overall_grade = cgpa_match.group(3)
+                    else:
+                        cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text_clean, re.IGNORECASE)
+                        if cgpa_sub: overall_cgpa = cgpa_sub.group(1)
+                        grade_sub = re.search(r'Grade\s*[\:\s]*([A-Z\+\-]+)', text_clean, re.IGNORECASE)
+                        if grade_sub: overall_grade = grade_sub.group(1)
+
+                    print(f"Page {page_num+1} Extracted: Reg={reg_no}, Name={name}, Roll={roll_no}")
+
+                    # 9. Database Upsert
+                    existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
+                    if existing_student:
+                        existing_student.name = name if name != "Unknown Student" else existing_student.name
+                        existing_student.roll_no = roll_no if roll_no != "Unknown" else existing_student.roll_no
+                        existing_student.course = course
+                        existing_student.overall_cgpa = overall_cgpa
+                        existing_student.overall_grade = overall_grade
                         
-                extracted_count += 1
-            except Exception as page_err:
-                print(f"Error on page {page_num}: {page_err}")
-                continue
+                        db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+                        for sem in sems_data:
+                            db.add(SemesterRecord(
+                                registration_no=reg_no, semester=sem[0], year=sem[1], 
+                                marks_obtained=sem[2], sgpa=sem[3]
+                            ))
+                    else:
+                        student = Student(
+                            registration_no=reg_no, 
+                            roll_no=roll_no, 
+                            name=name, 
+                            admission_year=admission_year, 
+                            course=course, 
+                            overall_cgpa=overall_cgpa, 
+                            overall_grade=overall_grade
+                        )
+                        db.add(student)
+                        for sem in sems_data:
+                            db.add(SemesterRecord(
+                                registration_no=reg_no, semester=sem[0], year=sem[1], 
+                                marks_obtained=sem[2], sgpa=sem[3]
+                            ))
+                            
+                    extracted_count += 1
+                except Exception as page_err:
+                    print(f"Error on page {page_num+1}: {page_err}")
+                    continue
 
         db.commit()
     except Exception as e:
