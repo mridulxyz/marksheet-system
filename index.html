@@ -13,7 +13,9 @@
         .main-content { flex: 1; padding: 40px; overflow-y: auto; }
         .section { display: none; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .section.active { display: block; }
-        input, select, button { padding: 10px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
+        input[type="text"], input[type="file"], select, button { padding: 10px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
+        .checkbox-container { display: flex; align-items: center; margin: 10px 0; font-weight: bold; }
+        .checkbox-container input { width: 20px; height: 20px; margin-right: 10px; cursor: pointer; }
         button { background-color: #2980b9; color: white; border: none; cursor: pointer; font-weight: bold; }
         button:hover { background-color: #1c5980; }
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
@@ -21,6 +23,9 @@
         table { width: 100%; border-collapse: collapse; text-align: center; margin-bottom: 20px; }
         th, td { border: 1px solid #ddd; padding: 12px; }
         th { background-color: #2980b9; color: white; }
+        .stats-card { background: #fdfefe; border: 1px solid #bdc3c7; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .stats-card h3 { margin-top: 0; color: #d35400; border-bottom: 2px solid #e67e22; padding-bottom: 5px; }
+        .grade-badge { display: inline-block; padding: 8px 15px; margin: 5px; background: #34495e; color: white; border-radius: 20px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -29,7 +34,8 @@
         <h2>Admin Portal</h2>
         <ul>
             <li class="active" onclick="switchTab('upload')">1. Upload Marksheets</li>
-            <li onclick="switchTab('student')">2. Marksheet Collection & Proofs</li>
+            <li onclick="switchTab('student')">2. Student Details & Actions</li>
+            <li onclick="switchTab('stats'); fetchStats();">3. Overall Course Results</li>
         </ul>
     </div>
 
@@ -42,10 +48,10 @@
             <div id="upload-msg" style="margin-top: 15px; font-weight: bold;"></div>
         </div>
 
-        <!-- 2. STUDENT SEARCH & POST-GRAD UPDATE -->
+        <!-- 2. STUDENT SEARCH & UPDATE -->
         <div id="student" class="section">
             <h2>Search Student Record</h2>
-            <input type="text" id="regNo" placeholder="Enter Registration Number...">
+            <input type="text" id="regNo" placeholder="Enter Registration Number (e.g. 123-1234-1234-23)">
             <button onclick="fetchStudent()">Search Database</button>
             
             <div id="result-area" style="display: none; margin-top: 20px;">
@@ -57,9 +63,9 @@
                 <div class="info-grid" style="margin-top: 15px;">
                     <div><b>Reg No:</b> <span id="s-reg"></span></div>
                     <div><b>Roll No:</b> <span id="s-roll"></span></div>
+                    <div><b>Year of Admission:</b> <span id="s-admin-year"></span></div>
+                    <div><b>Passout Year:</b> <span id="s-pass-year"></span></div>
                     <div><b>Final CGPA:</b> <span id="s-cgpa"></span></div>
-                    <div><b>Date Collected:</b> <span id="s-date" style="color:red; font-weight:bold;"></span></div>
-                    <div><b>Career Status:</b> <span id="s-status"></span></div>
                     <div><b>Proof File:</b> <span id="s-proof"></span></div>
                 </div>
 
@@ -71,29 +77,47 @@
 
                 <!-- UPDATE FORM -->
                 <div class="status-card">
-                    <h3 style="margin-top:0; color:#16a085;">Issue Marksheet & Register Career Profile</h3>
+                    <h3 style="margin-top:0; color:#16a085;">Issue Documents & Update Career Profile</h3>
                     
-                    <label><b>1. Date Marksheet Handed Over:</b></label>
-                    <input type="date" id="collectionDate">
+                    <label><b>1. Update Course Name (If needed):</b></label>
+                    <input type="text" id="s-course" placeholder="e.g. BA MDC, BSC Major, BCOM...">
 
-                    <label><b>2. Current Career Status:</b></label>
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="marksheetCb">
+                        <label for="marksheetCb">Student has Received Marksheet</label>
+                    </div>
+                    
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="certCb">
+                        <label for="certCb">Student has Received Certificate</label>
+                    </div>
+
+                    <label><b>Current Career Status:</b></label>
                     <select id="postGradStatus">
-                        <option value="Job">Employed (Job)</option>
-                        <option value="Higher Study">Higher Education (M.A, M.Sc, etc.)</option>
-                        <option value="Business">Business / Entrepreneur</option>
-                        <option value="Looking">Looking for Opportunities</option>
+                        <option value="Unemployed">Unemployed / Looking for Job</option>
+                        <option value="Private Job">Private Job</option>
+                        <option value="Govt Job">Government Job</option>
+                        <option value="Business">Business / Self-Employed</option>
+                        <option value="Higher Study">Higher Study (M.A, M.Sc, etc.)</option>
                     </select>
 
-                    <label><b>3. Details (Company/University Name):</b></label>
-                    <input type="text" id="postGradDetails" placeholder="e.g. Wipro / Calcutta University">
+                    <label><b>Job/Study Details (Optional):</b></label>
+                    <input type="text" id="postGradDetails" placeholder="e.g. TCS / Calcutta University">
 
-                    <label><b>4. Upload Proof (Offer Letter, ID Card, Admission Receipt):</b></label>
+                    <label><b>Upload Proof (Optional - Offer Letter, ID Card):</b></label>
                     <input type="file" id="proofFile" accept="image/*,application/pdf">
 
-                    <button onclick="updateStatus()" style="background-color: #1abc9c;">Save Record</button>
+                    <button onclick="updateStatus()" style="background-color: #1abc9c;">Save Updated Record</button>
                     <div id="status-msg" style="margin-top: 10px; font-weight: bold;"></div>
                 </div>
             </div>
+        </div>
+
+        <!-- 3. OVERALL COURSE RESULTS (GRADE STATS) -->
+        <div id="stats" class="section">
+            <h2>Overall Result Statistics</h2>
+            <p>Count of students per Grade, categorized by Course.</p>
+            <div id="stats-container"></div>
         </div>
     </div>
 
@@ -141,22 +165,29 @@
                 const data = await res.json();
                 currentRegNo = data.student.reg_no;
 
-                // Populate Basic Info
+                // Populate Info
                 document.getElementById("s-name").innerText = data.student.name;
-                document.getElementById("s-grade").innerText = `Grade: ${data.student.grade}`;
+                document.getElementById("s-grade").innerText = `Final Result: ${data.student.grade}`;
                 document.getElementById("s-reg").innerText = data.student.reg_no;
                 document.getElementById("s-roll").innerText = data.student.roll_no;
+                document.getElementById("s-admin-year").innerText = data.student.admission_year;
+                document.getElementById("s-pass-year").innerText = data.student.passout_year;
                 document.getElementById("s-cgpa").innerText = data.student.cgpa;
-                document.getElementById("s-date").innerText = data.student.collection_date;
-                document.getElementById("s-status").innerText = data.student.status + (data.student.details ? ` (${data.student.details})` : "");
                 
+                // Populate Edit Fields
+                document.getElementById("s-course").value = data.student.course;
+                document.getElementById("marksheetCb").checked = data.student.marksheet_received;
+                document.getElementById("certCb").checked = data.student.certificate_received;
+                document.getElementById("postGradStatus").value = data.student.status;
+                document.getElementById("postGradDetails").value = data.student.details;
+
                 if (data.student.proof) {
-                    document.getElementById("s-proof").innerHTML = `<a href="/${data.student.proof}" target="_blank">View Proof File</a>`;
+                    document.getElementById("s-proof").innerHTML = `<a href="/${data.student.proof}" target="_blank">View Proof Document</a>`;
                 } else {
-                    document.getElementById("s-proof").innerText = "No file uploaded.";
+                    document.getElementById("s-proof").innerText = "No document uploaded yet.";
                 }
 
-                // Populate Semester Table
+                // Populate Semesters
                 const tbody = document.getElementById("sem-table-body");
                 tbody.innerHTML = "";
                 data.semesters.forEach(s => {
@@ -171,16 +202,18 @@
 
         async function updateStatus() {
             if (!currentRegNo) return;
-            const date = document.getElementById("collectionDate").value;
+            const course = document.getElementById("s-course").value;
+            const msCb = document.getElementById("marksheetCb").checked;
+            const certCb = document.getElementById("certCb").checked;
             const status = document.getElementById("postGradStatus").value;
             const details = document.getElementById("postGradDetails").value;
             const file = document.getElementById("proofFile").files[0];
             const msg = document.getElementById("status-msg");
 
-            if (!date) return alert("Please select the Date the marksheet was collected.");
-
             const formData = new FormData();
-            formData.append("collection_date", date);
+            formData.append("course", course);
+            formData.append("marksheet_received", msCb);
+            formData.append("certificate_received", certCb);
             formData.append("status", status);
             formData.append("details", details);
             if (file) formData.append("proof_file", file);
@@ -192,11 +225,42 @@
                 if (res.ok) {
                     msg.innerText = "✅ Record Successfully Updated!";
                     msg.style.color = "green";
-                    fetchStudent();
+                    fetchStudent(); // refresh
                 } else throw new Error();
             } catch (err) {
                 msg.innerText = "❌ Error saving record.";
                 msg.style.color = "red";
+            }
+        }
+
+        async function fetchStats() {
+            const container = document.getElementById("stats-container");
+            container.innerHTML = "<i>Loading statistics...</i>";
+            
+            try {
+                const res = await fetch("/api/admin/grade-stats");
+                const stats = await res.json();
+                
+                container.innerHTML = "";
+                
+                if (Object.keys(stats).length === 0) {
+                    container.innerHTML = "<p>No results extracted yet.</p>";
+                    return;
+                }
+
+                // Build a nice card for each course
+                for (const [course, grades] of Object.entries(stats)) {
+                    let cardHtml = `<div class="stats-card"><h3>Course: ${course}</h3><div>`;
+                    
+                    for (const [grade, count] of Object.entries(grades)) {
+                        cardHtml += `<span class="grade-badge">Grade ${grade}: ${count} Student(s)</span>`;
+                    }
+                    
+                    cardHtml += `</div></div>`;
+                    container.innerHTML += cardHtml;
+                }
+            } catch (err) {
+                container.innerHTML = "<p style='color:red;'>Failed to load statistics.</p>";
             }
         }
     </script>
