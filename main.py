@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
 # --- SECURITY (ADMIN LOGIN) ---
@@ -53,6 +53,33 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# --- AUTOMATIC SCHEMA MIGRATION FOR POSTGRESQL & SQLITE ---
+def run_auto_migrations():
+    try:
+        with engine.connect() as conn:
+            if "postgresql" in DATABASE_URL:
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS course VARCHAR DEFAULT 'Unknown Course';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS marksheet_received BOOLEAN DEFAULT FALSE;"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS certificate_received BOOLEAN DEFAULT FALSE;"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_status VARCHAR DEFAULT 'Unemployed';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_details VARCHAR DEFAULT '';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS proof_document_path VARCHAR DEFAULT '';"))
+                conn.commit()
+            elif "sqlite" in DATABASE_URL:
+                columns = [row[1] for row in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
+                if columns:
+                    if "course" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN course VARCHAR DEFAULT 'Unknown Course';"))
+                    if "marksheet_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN marksheet_received BOOLEAN DEFAULT 0;"))
+                    if "certificate_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN certificate_received BOOLEAN DEFAULT 0;"))
+                    if "post_grad_status" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_status VARCHAR DEFAULT 'Unemployed';"))
+                    if "post_grad_details" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_details VARCHAR;"))
+                    if "proof_document_path" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN proof_document_path VARCHAR;"))
+                    conn.commit()
+    except Exception as e:
+        print(f"Migration note: {e}")
+
+run_auto_migrations()
 
 # --- DATABASE MODELS ---
 class Student(Base):
@@ -90,13 +117,10 @@ os.makedirs("uploads", exist_ok=True)
 # --- BULLETPROOF PARSING FUNCTIONS ---
 
 def extract_reg_no_bulletproof(text: str):
-    if not text:
-        return None, "Text is empty"
-
+    if not text: return None, "Text empty"
     t = re.sub(r'[—–_~]', '-', text)
     t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
 
-    # Method 1: Label Match
     match = re.search(r'(?:Registration|Regn|Reg|Registra)[^\d]{0,15}([0-9\-\s\.\/]{13,22})', t_fixed, re.IGNORECASE)
     if match:
         digits = re.sub(r'\D', '', match.group(1))
@@ -104,24 +128,20 @@ def extract_reg_no_bulletproof(text: str):
             d = digits[:13]
             return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "Reg Label"
 
-    # Method 2: CU Pattern (3-4-4-2)
     pattern_match = re.search(r'\b(\d{3})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{2})\b', t_fixed)
     if pattern_match:
         g = pattern_match.groups()
         return f"{g[0]}-{g[1]}-{g[2]}-{g[3]}", "3-4-4-2 Pattern"
 
-    # Method 3: Unbounded 13-Digit Search
     all_digits_clusters = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
     if all_digits_clusters:
         d = all_digits_clusters[0]
         return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "13-Digit Cluster"
 
-    return None, f"No 13-digit registration pattern found (Text Len={len(text)})"
+    return None, f"No 13-digit pattern found (Text Len={len(text)})"
 
 def extract_roll_no_bulletproof(text: str):
-    if not text:
-        return "Unknown"
-
+    if not text: return "Unknown"
     t = re.sub(r'[—–_~]', '-', text)
     t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
 
@@ -146,20 +166,11 @@ def extract_roll_no_bulletproof(text: str):
 
 def extract_name_bulletproof(text: str):
     if not text: return "Unknown Student"
-    
     match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text, re.IGNORECASE)
     if match:
         raw_name = re.sub(r'[^A-Za-z\s\.]', '', match.group(1)).strip()
         if len(raw_name) > 2:
             return raw_name
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    for line in lines[:10]:
-        words = line.split()
-        if len(words) >= 2 and all(w.isupper() and w.isalpha() for w in words):
-            if "UNIVERSITY" not in line and "CALCUTTA" not in line and "EXAMINATION" not in line:
-                return line
-
     return "Unknown Student"
 
 def extract_course(text: str):
@@ -188,15 +199,25 @@ def extract_cgpa_grade(text: str):
     overall_grade = "Fail / Semester Not Cleared"
     if not text: return overall_cgpa, overall_grade
 
-    cgpa_match = re.search(r'VI\b.*?\b([\d\.]+)\s+\d+\s+([\d\.]+)\s+([A-Z\+\-]+)', text)
-    if cgpa_match:
-        overall_cgpa = cgpa_match.group(2)
-        overall_grade = cgpa_match.group(3)
-    else:
-        cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text, re.IGNORECASE)
-        if cgpa_sub: overall_cgpa = cgpa_sub.group(1)
-        grade_sub = re.search(r'Grade\s*[\:\s]*([A-Z\+\-]+)', text, re.IGNORECASE)
-        if grade_sub: overall_grade = grade_sub.group(1)
+    # Match Semester VI row: VI 2024 400 270 24 6.686 140 6.819 B+
+    vi_row_match = re.search(
+        r'VI\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)\s+(\d+)\s+([\d\.]+)\s+([A-Z\+\-]+)', 
+        text
+    )
+    if vi_row_match:
+        overall_cgpa = vi_row_match.group(7) # 6.819
+        overall_grade = vi_row_match.group(8) # B+
+        return overall_cgpa, overall_grade
+
+    cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text, re.IGNORECASE)
+    if cgpa_sub: 
+        overall_cgpa = cgpa_sub.group(1)
+
+    grade_sub = re.search(r'Letter\s*Grade\s*[\:\s]*([A-Z\+\-]+)', text, re.IGNORECASE)
+    if grade_sub:
+        g_val = grade_sub.group(1).strip()
+        if g_val.upper() != "SHEET":
+            overall_grade = g_val
 
     return overall_cgpa, overall_grade
 
@@ -243,7 +264,6 @@ async def upload_marksheet(
     try:
         pages_data = []
 
-        # Strategy 1: PyMuPDF (Fast C Engine)
         if fitz:
             try:
                 doc = fitz.open(temp_pdf_path)
@@ -258,7 +278,6 @@ async def upload_marksheet(
                 debug_logs.append(f"PyMuPDF Error: {fe}")
                 pages_data = []
 
-        # Strategy 2: pdfplumber Fallback
         if not pages_data and pdfplumber:
             try:
                 with pdfplumber.open(temp_pdf_path) as pdf:
@@ -268,12 +287,10 @@ async def upload_marksheet(
             except Exception as pe:
                 debug_logs.append(f"pdfplumber Error: {pe}")
 
-        # Process Each Page
         for page_num, (text, img) in enumerate(pages_data):
             try:
                 reg_no, match_method = extract_reg_no_bulletproof(text)
 
-                # High-Speed OCR Fallback if Reg No not found
                 if not reg_no and img:
                     try:
                         gray = img.convert('L')
@@ -293,8 +310,6 @@ async def upload_marksheet(
                 course = extract_course(text)
                 sems_data = extract_semesters(text)
                 overall_cgpa, overall_grade = extract_cgpa_grade(text)
-
-                debug_logs.append(f"Page {page_num+1} Success ({match_method}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -330,12 +345,15 @@ async def upload_marksheet(
                         ))
                         
                 extracted_count += 1
+                debug_logs.append(f"Page {page_num+1} Success ({match_method}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
             except Exception as page_err:
-                debug_logs.append(f"Page {page_num+1} Exception: {page_err}")
+                db.rollback() # Reset failed transaction state
+                debug_logs.append(f"Page {page_num+1} DB Exception: {page_err}")
                 continue
 
         db.commit()
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"PDF extraction error: {str(e)}")
     finally:
         if os.path.exists(temp_pdf_path): 
