@@ -1,10 +1,16 @@
 # Use official Python image
 FROM python:3.10-slim
 
-# Install Tesseract OCR and its dependencies
+# Install Tesseract OCR, Bengali language pack, Poppler utilities, and rendering dependencies
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
+    tesseract-ocr-ben \
     libtesseract-dev \
+    poppler-utils \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
