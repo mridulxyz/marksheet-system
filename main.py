@@ -199,34 +199,36 @@ def extract_cgpa_grade(text: str):
     overall_grade = "Fail / Semester Not Cleared"
     if not text: return overall_cgpa, overall_grade
 
-    # Search specifically inside the Semester VI row
-    vi_line_match = re.search(r'\bVI\b[^\n\r]*', text)
-    if vi_line_match:
-        vi_line = vi_line_match.group(0)
+    # Match Semester VI Table Row specifically (VI followed by 4-digit year e.g. 2024)
+    vi_row = re.search(r'\bVI\s+(?:20\d\d)[^\n\r]*', text)
+    if not vi_row:
+        vi_row = re.search(r'^\s*VI\b[^\n\r]*\d+[^\n\r]*', text, re.MULTILINE)
+
+    if vi_row:
+        line_str = vi_row.group(0)
         
         # Find all decimal numbers in the VI line
-        decimals = re.findall(r'\b\d+\.\d+\b', vi_line)
+        decimals = re.findall(r'\b\d+\.\d+\b', line_str)
         if len(decimals) >= 2:
-            overall_cgpa = decimals[-1]  # The second/last decimal in VI row is CGPA (e.g. 6.819)
+            overall_cgpa = decimals[-1]  # Last decimal in VI row is CGPA (e.g. 6.819)
         elif len(decimals) == 1:
-            if "CGPA" in text:
-                overall_cgpa = decimals[0]
+            overall_cgpa = decimals[0]
 
-        # Match valid letter grades on the VI line
-        grade_match = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|F)\b', vi_line)
-        if grade_match:
-            overall_grade = grade_match.group(1)
+        # Match letter grade on VI line (e.g. B+)
+        grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|F)\b', line_str)
+        if grade_m:
+            overall_grade = grade_m.group(1)
 
     # Global Fallback Search
     if overall_cgpa == "N.A.":
-        cgpa_search = re.search(r'CGPA[^\d]{0,15}(\d+\.\d+)', text, re.IGNORECASE)
-        if cgpa_search:
-            overall_cgpa = cgpa_search.group(1)
+        all_cgpa_matches = re.findall(r'CGPA[^\d\n\r]{0,20}(\d+\.\d+)', text, re.IGNORECASE)
+        if all_cgpa_matches:
+            overall_cgpa = all_cgpa_matches[-1]
 
     if overall_grade == "Fail / Semester Not Cleared":
-        grade_search = re.search(r'(?:Letter\s*Grade|Grade)[^\w]{0,10}\b(A\+|A|B\+|B|C\+|C|D|P|F)\b', text, re.IGNORECASE)
-        if grade_search:
-            overall_grade = grade_search.group(1)
+        grade_m = re.search(r'(?:Letter\s*Grade|Grade|Result)[^\w\n\r]{0,15}\b(A\+|A|B\+|B|C\+|C|D|P|F)\b', text, re.IGNORECASE)
+        if grade_m:
+            overall_grade = grade_m.group(1)
 
     return overall_cgpa, overall_grade
 
