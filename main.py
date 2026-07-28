@@ -172,28 +172,32 @@ def extract_cgpa_grade_bulletproof(text: str):
     if not text: return overall_cgpa, overall_grade
 
     text_fixed = re.sub(r'(\d)\s*\.\s*(\d)', r'\1.\2', text)
-    is_failed = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared|Failed|Semester\s*NC)', text_fixed, re.IGNORECASE))
+
+    # Check specifically for "Semester not cleared" (Excludes generic "Failed" in footer legend)
+    is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_fixed, re.IGNORECASE))
 
     all_floats = re.findall(r'\b([0-9]\.\d{2,3})\b', text_fixed)
     valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
 
-    if not is_failed and valid_gpas:
+    # On a cleared CU Grade Sheet, the LAST float on the page is ALWAYS the CGPA
+    if not is_not_cleared and valid_gpas:
         overall_cgpa = valid_gpas[-1]
 
+    # Extract Letter Grade
     if overall_cgpa != "N.A.":
         post_cgpa = text_fixed.split(overall_cgpa)[-1] if overall_cgpa in text_fixed else text_fixed
         grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', post_cgpa)
         if grade_m:
             overall_grade = grade_m.group(1)
         else:
-            grade_m_global = re.search(r'(?:Letter\s*Grade|Grade)[\s\:\.\=]*([A-O][\+]?)', text_fixed, re.IGNORECASE)
+            grade_m_global = re.search(r'Letter\s*Grade[\s\:\.\=]*([A-O][\+]?)', text_fixed, re.IGNORECASE)
             if grade_m_global:
                 overall_grade = grade_m_global.group(1).upper()
 
     return overall_cgpa, overall_grade
 
 # --- FASTAPI APP SETUP ---
-app = FastAPI(title="University Admin Portal")
+app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
 
 app.add_middleware(
     CORSMiddleware,
@@ -216,10 +220,7 @@ def get_db():
 @app.on_event("startup")
 def startup_db_setup():
     try:
-        # Step 1: Create Tables First
         Base.metadata.create_all(bind=engine)
-        
-        # Step 2: Add missing columns safely
         with engine.connect() as conn:
             if "postgresql" in DATABASE_URL:
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS course VARCHAR DEFAULT 'Unknown Course';"))
