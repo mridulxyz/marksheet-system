@@ -3,14 +3,8 @@ import re
 import shutil
 import secrets
 import gc
+import fitz  # PyMuPDF
 from PIL import Image
-
-try:
-    import pypdf
-except ImportError:
-    pypdf = None
-
-import pdfplumber
 import pytesseract
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
@@ -89,7 +83,6 @@ def extract_reg_no(text: str):
     if not text: return None
     t_clean = re.sub(r'[—–_~]', '-', text)
 
-    # Search for Registration No label
     match = re.search(r'(?:Registration|Regn|Reg)[\s\.\:\-]*No[\.\:\s]*([0-9OoQIl\-\s\.\/]+)', t_clean, re.IGNORECASE)
     if match:
         raw_val = match.group(1).replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
@@ -98,7 +91,6 @@ def extract_reg_no(text: str):
             d = digits[:13]
             return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}"
 
-    # Search for CU 13-digit pattern: XXX-XXXX-XXXX-XX
     t_fixed = t_clean.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
     cu_pattern = re.search(r'\b(\d{3})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{2})\b', t_fixed)
     if cu_pattern:
@@ -143,32 +135,36 @@ def extract_course(text: str):
         return match.group(0).strip()
     return "B.A. (Honours)"
 
-def run_ocr(page):
-    # Strategy 1: Fast Grayscale
-    try:
-        raw_img = page.to_image(resolution=110).original
-        gray = raw_img.convert('L')
-        text = pytesseract.image_to_string(gray, lang="eng")
-        del raw_img, gray
-        gc.collect()
-        if len(text.strip()) > 20:
-            return text
-    except Exception as e:
-        print(f"OCR Strategy 1 error: {e}")
+def extract_semesters(text: str):
+    sems_data = []
+    if not text: return sems_data
+    for line in text.splitlines():
+        line_str = line.strip()
+        sem_m = re.search(r'^(I|II|III|IV|V|VI)\b\s*(\d{4})?\s*(\d+)?\s*(\d+)?\s*(\d+)?\s*([\d\.]+|N\.?A\.?)?', line_str)
+        if sem_m:
+            s_name = sem_m.group(1)
+            s_year = sem_m.group(2) or ""
+            s_marks = sem_m.group(4) or ""
+            s_sgpa = sem_m.group(6) or ""
+            sems_data.append((s_name, s_year, s_marks, s_sgpa))
+    return sems_data
 
-    # Strategy 2: Binarized (Thresholding)
-    try:
-        raw_img = page.to_image(resolution=100).original
-        gray = raw_img.convert('L')
-        bw = gray.point(lambda p: 255 if p > 160 else 0)
-        text = pytesseract.image_to_string(bw, lang="eng")
-        del raw_img, gray, bw
-        gc.collect()
-        return text
-    except Exception as e:
-        print(f"OCR Strategy 2 error: {e}")
+def extract_cgpa_grade(text: str):
+    overall_cgpa = "N.A."
+    overall_grade = "Fail / Semester Not Cleared"
+    if not text: return overall_cgpa, overall_grade
 
-    return ""
+    cgpa_match = re.search(r'VI\b.*?\b([\d\.]+)\s+\d+\s+([\d\.]+)\s+([A-Z\+\-]+)', text)
+    if cgpa_match:
+        overall_cgpa = cgpa_match.group(2)
+        overall_grade = cgpa_match.group(3)
+    else:
+        cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text, re.IGNORECASE)
+        if cgpa_sub: overall_cgpa = cgpa_sub.group(1)
+        grade_sub = re.search(r'Grade\s*[\:\s]*([A-Z\+\-]+)', text, re.IGNORECASE)
+        if grade_sub: overall_grade = grade_sub.group(1)
+
+    return overall_cgpa, overall_grade
 
 # --- FASTAPI APP SETUP ---
 app = FastAPI(title="University Admin Portal")
@@ -209,102 +205,80 @@ async def upload_marksheet(
         
     extracted_count = 0
     try:
-        with pdfplumber.open(temp_pdf_path) as pdf:
-            for page_num, page in enumerate(pdf.pages):
+        # High-Speed C PDF Engine (PyMuPDF)
+        doc = fitz.open(temp_pdf_path)
+        
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            print(f"--- Processing Page {page_num + 1} ---")
+            
+            # Step 1: Instant Native Text Extraction via PyMuPDF (0.001s)
+            text = page.get_text("text") or ""
+            reg_no = extract_reg_no(text)
+
+            # Step 2: High-Speed Image Render & OCR Fallback (0.02s)
+            if not reg_no:
+                print(f"Page {page_num + 1}: Registration No not in native text. Running PyMuPDF fast OCR...")
                 try:
-                    print(f"--- Processing Page {page_num + 1} ---")
-                    
-                    # 1. Try Native Digital Text
-                    text = page.extract_text() or ""
+                    pix = page.get_pixmap(dpi=120)
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    gray = img.convert('L')
+                    text = pytesseract.image_to_string(gray, lang="eng")
                     reg_no = extract_reg_no(text)
+                    del pix, img, gray
+                    gc.collect()
+                except Exception as ocr_err:
+                    print(f"OCR Error on page {page_num + 1}: {ocr_err}")
 
-                    # 2. Trigger OCR if Registration No was NOT found in native text
-                    if not reg_no:
-                        print(f"Page {page_num + 1}: Registration No not in native text. Triggering OCR...")
-                        ocr_text = run_ocr(page)
-                        if ocr_text:
-                            text = ocr_text
-                            reg_no = extract_reg_no(text)
+            if not reg_no:
+                print(f"Page {page_num + 1}: Registration No could not be identified. Skipping.")
+                continue
 
-                    if not reg_no:
-                        print(f"Page {page_num + 1}: Reg No could not be identified after OCR. Skipping.")
-                        continue 
+            # Step 3: Extract Fields
+            roll_no = extract_roll_no(text)
+            name = extract_name(text)
+            course = extract_course(text)
+            sems_data = extract_semesters(text)
+            overall_cgpa, overall_grade = extract_cgpa_grade(text)
 
-                    # 3. Extract Fields
-                    roll_no = extract_roll_no(text)
-                    name = extract_name(text)
-                    course = extract_course(text)
+            print(f"Page {page_num + 1} SUCCESS: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
 
-                    try:
-                        admission_year = "20" + reg_no.split("-")[-1]
-                    except:
-                        admission_year = "Unknown"
+            # Step 4: Database Upsert
+            existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
+            if existing_student:
+                existing_student.name = name if name != "Unknown Student" else existing_student.name
+                existing_student.roll_no = roll_no if roll_no != "Unknown" else existing_student.roll_no
+                existing_student.course = course
+                existing_student.overall_cgpa = overall_cgpa
+                existing_student.overall_grade = overall_grade
+                
+                db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+                for sem in sems_data:
+                    db.add(SemesterRecord(
+                        registration_no=reg_no, semester=sem[0], year=sem[1], 
+                        marks_obtained=sem[2], sgpa=sem[3]
+                    ))
+            else:
+                admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
+                student = Student(
+                    registration_no=reg_no, 
+                    roll_no=roll_no, 
+                    name=name, 
+                    admission_year=admission_year, 
+                    course=course, 
+                    overall_cgpa=overall_cgpa, 
+                    overall_grade=overall_grade
+                )
+                db.add(student)
+                for sem in sems_data:
+                    db.add(SemesterRecord(
+                        registration_no=reg_no, semester=sem[0], year=sem[1], 
+                        marks_obtained=sem[2], sgpa=sem[3]
+                    ))
+                    
+            extracted_count += 1
 
-                    # 4. Extract Semester Performance Table
-                    sems_data = []
-                    for line in text.splitlines():
-                        line_str = line.strip()
-                        sem_m = re.search(r'^(I|II|III|IV|V|VI)\b\s*(\d{4})?\s*(\d+)?\s*(\d+)?\s*(\d+)?\s*([\d\.]+|N\.?A\.?)?', line_str)
-                        if sem_m:
-                            s_name = sem_m.group(1)
-                            s_year = sem_m.group(2) or ""
-                            s_marks = sem_m.group(4) or ""
-                            s_sgpa = sem_m.group(6) or ""
-                            sems_data.append((s_name, s_year, s_marks, s_sgpa))
-
-                    # 5. Extract Final CGPA & Grade
-                    overall_cgpa = "N.A."
-                    overall_grade = "Fail / Semester Not Cleared"
-
-                    cgpa_match = re.search(r'VI\b.*?\b([\d\.]+)\s+\d+\s+([\d\.]+)\s+([A-Z\+\-]+)', text)
-                    if cgpa_match:
-                        overall_cgpa = cgpa_match.group(2)
-                        overall_grade = cgpa_match.group(3)
-                    else:
-                        cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text, re.IGNORECASE)
-                        if cgpa_sub: overall_cgpa = cgpa_sub.group(1)
-                        grade_sub = re.search(r'Grade\s*[\:\s]*([A-Z\+\-]+)', text, re.IGNORECASE)
-                        if grade_sub: overall_grade = grade_sub.group(1)
-
-                    print(f"Page {page_num + 1} SUCCESS: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
-
-                    # 6. Database Upsert
-                    existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
-                    if existing_student:
-                        existing_student.name = name if name != "Unknown Student" else existing_student.name
-                        existing_student.roll_no = roll_no if roll_no != "Unknown" else existing_student.roll_no
-                        existing_student.course = course
-                        existing_student.overall_cgpa = overall_cgpa
-                        existing_student.overall_grade = overall_grade
-                        
-                        db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-                        for sem in sems_data:
-                            db.add(SemesterRecord(
-                                registration_no=reg_no, semester=sem[0], year=sem[1], 
-                                marks_obtained=sem[2], sgpa=sem[3]
-                            ))
-                    else:
-                        student = Student(
-                            registration_no=reg_no, 
-                            roll_no=roll_no, 
-                            name=name, 
-                            admission_year=admission_year, 
-                            course=course, 
-                            overall_cgpa=overall_cgpa, 
-                            overall_grade=overall_grade
-                        )
-                        db.add(student)
-                        for sem in sems_data:
-                            db.add(SemesterRecord(
-                                registration_no=reg_no, semester=sem[0], year=sem[1], 
-                                marks_obtained=sem[2], sgpa=sem[3]
-                            ))
-                            
-                    extracted_count += 1
-                except Exception as page_err:
-                    print(f"Error on page {page_num + 1}: {page_err}")
-                    continue
-
+        doc.close()
         db.commit()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF extraction error: {str(e)}")
