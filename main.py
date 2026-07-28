@@ -152,7 +152,45 @@ def extract_course(text: str):
         return match.group(0).strip()
     return "B.A. (Honours)"
 
-def extract_semesters(text: str):
+# --- PyMuPDF STRUCTURED VECTOR TABLE FINDER ---
+def extract_table_data_pymupdf(page):
+    sems_data = []
+    overall_cgpa = "N.A."
+    overall_grade = "Fail / Semester Not Cleared"
+
+    try:
+        tabs = page.find_tables()
+        for tab in tabs:
+            df = tab.extract()
+            for row in df:
+                if not row or len(row) < 5:
+                    continue
+                
+                sem_cell = str(row[0]).strip().upper() if row[0] else ""
+                if sem_cell in ['I', 'II', 'III', 'IV', 'V', 'VI']:
+                    yr = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+                    mo = str(row[3]).strip() if len(row) > 3 and row[3] else ""
+                    sgpa = str(row[5]).strip() if len(row) > 5 and row[5] else ""
+                    
+                    sgpa_clean = re.sub(r'[^\d\.]', '', sgpa) if sgpa else ""
+                    sems_data.append((sem_cell, yr, mo, sgpa_clean))
+
+                    if sem_cell == 'VI':
+                        if len(row) > 7 and row[7]:
+                            possible_cgpa = re.sub(r'[^\d\.]', '', str(row[7]).strip())
+                            if possible_cgpa and 1.0 <= float(possible_cgpa) <= 10.0:
+                                overall_cgpa = possible_cgpa
+                        if len(row) > 8 and row[8]:
+                            possible_grade = str(row[8]).strip()
+                            grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', possible_grade)
+                            if grade_m:
+                                overall_grade = grade_m.group(1)
+    except Exception as e:
+        print(f"Table extraction note: {e}")
+
+    return sems_data, overall_cgpa, overall_grade
+
+def extract_semesters_text_fallback(text: str):
     sems_data = []
     if not text: return sems_data
     for line in text.splitlines():
@@ -166,34 +204,25 @@ def extract_semesters(text: str):
             sems_data.append((s_name, s_year, s_marks, s_sgpa))
     return sems_data
 
-def extract_cgpa_grade_bulletproof(text: str):
+def extract_cgpa_grade_text_fallback(text: str):
     overall_cgpa = "N.A."
     overall_grade = "Fail / Semester Not Cleared"
     if not text: return overall_cgpa, overall_grade
 
-    # Fix OCR spaces around decimals and commas
     text_fixed = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', text)
-
-    # Check specifically for "not cleared" (Excludes generic "Failed" in footer legend)
-    is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared|Semester\s*NC)', text_fixed, re.IGNORECASE))
+    is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_fixed, re.IGNORECASE))
 
     all_floats = re.findall(r'\b([0-9]\.\d{2,3})\b', text_fixed)
     valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
 
-    # If student passed / qualified, the last float is ALWAYS the CGPA
     if not is_not_cleared and valid_gpas:
         overall_cgpa = valid_gpas[-1]
 
-    # Extract Letter Grade
     if overall_cgpa != "N.A.":
         post_cgpa = text_fixed.split(overall_cgpa)[-1] if overall_cgpa in text_fixed else text_fixed
         grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', post_cgpa)
         if grade_m:
             overall_grade = grade_m.group(1)
-        else:
-            grade_m_global = re.search(r'Letter\s*Grade[\s\:\.\=]*([A-O][\+]?)', text_fixed, re.IGNORECASE)
-            if grade_m_global:
-                overall_grade = grade_m_global.group(1).upper()
 
     return overall_cgpa, overall_grade
 
@@ -265,35 +294,21 @@ async def upload_marksheet(
     debug_logs = []
     
     try:
-        pages_data = []
+        if not fitz:
+            raise HTTPException(status_code=500, detail="PyMuPDF library is not installed.")
 
-        if fitz:
+        doc = fitz.open(temp_pdf_path)
+        
+        for page_num in range(len(doc)):
             try:
-                doc = fitz.open(temp_pdf_path)
-                for page_num in range(len(doc)):
-                    page = doc[page_num]
-                    t = page.get_text("text") or ""
-                    pix = page.get_pixmap(dpi=110)
-                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                    pages_data.append((t, img))
-                doc.close()
-            except Exception as fe:
-                debug_logs.append(f"PyMuPDF Error: {fe}")
-                pages_data = []
+                page = doc[page_num]
+                text = page.get_text("text") or ""
+                
+                pix = page.get_pixmap(dpi=110)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-        if not pages_data and pdfplumber:
-            try:
-                with pdfplumber.open(temp_pdf_path) as pdf:
-                    for page in pdf.pages:
-                        t = page.extract_text() or ""
-                        pages_data.append((t, None))
-            except Exception as pe:
-                debug_logs.append(f"pdfplumber Error: {pe}")
-
-        for page_num, (text, img) in enumerate(pages_data):
-            try:
+                # 1. Registration Number Extraction
                 reg_no, match_method = extract_reg_no_bulletproof(text)
-
                 if not reg_no and img:
                     try:
                         gray = img.convert('L')
@@ -308,11 +323,19 @@ async def upload_marksheet(
                     debug_logs.append(f"Page {page_num+1} Failed: {match_method}")
                     continue
 
+                # 2. Extract Roll, Name, Course
                 roll_no = extract_roll_no_bulletproof(text)
                 name = extract_name_bulletproof(text)
                 course = extract_course(text)
-                sems_data = extract_semesters(text)
-                overall_cgpa, overall_grade = extract_cgpa_grade_bulletproof(text)
+
+                # 3. Vector Table Extraction
+                sems_data, overall_cgpa, overall_grade = extract_table_data_pymupdf(page)
+
+                if not sems_data:
+                    sems_data = extract_semesters_text_fallback(text)
+
+                if overall_cgpa == "N.A.":
+                    overall_cgpa, overall_grade = extract_cgpa_grade_text_fallback(text)
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -348,12 +371,13 @@ async def upload_marksheet(
                         ))
                         
                 extracted_count += 1
-                debug_logs.append(f"Page {page_num+1} Success ({match_method}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
+                debug_logs.append(f"Page {page_num+1} Success ({match_method}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(sems_data)}")
             except Exception as page_err:
                 db.rollback()
                 debug_logs.append(f"Page {page_num+1} DB Exception: {page_err}")
                 continue
 
+        doc.close()
         db.commit()
     except Exception as e:
         db.rollback()
