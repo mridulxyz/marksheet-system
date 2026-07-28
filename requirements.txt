@@ -2,8 +2,7 @@ fastapi
 uvicorn
 sqlalchemy
 psycopg2-binary
-pdfplumber
-pypdf
+pymupdf
 pytesseract
 pillow
 python-multipart
