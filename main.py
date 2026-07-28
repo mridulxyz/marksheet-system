@@ -97,6 +97,22 @@ def get_db():
     finally:
         db.close()
 
+# --- HELPER FUNCTIONS FOR OCR & TEXT CLEANING ---
+def sanitize_number_str(val: str) -> str:
+    """ Fixes common OCR misreadings in Registration & Roll numbers """
+    if not val: return ""
+    val = re.sub(r'[—–_~]', '-', val)
+    val = val.replace('O', '0').replace('o', '0').replace('Q', '0')
+    val = val.replace('I', '1').replace('l', '1').replace('|', '1')
+    return re.sub(r'[^0-9\-]', '', val)
+
+def preprocess_image_remove_watermark(pil_img):
+    """ Converts image to grayscale and erases light gray background watermark """
+    gray = pil_img.convert('L')
+    # Thresholding: pixels brighter than 165 become pure white (255)
+    bw = gray.point(lambda p: 255 if p > 165 else 0)
+    return bw
+
 # --- FRONTEND ROUTE ---
 @app.get("/")
 def serve_frontend(username: str = Depends(authenticate_admin)):
@@ -119,47 +135,52 @@ async def upload_marksheet(
         with pdfplumber.open(temp_pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
                 try:
+                    # 1. Try Native Text Extraction First
                     text = page.extract_text() or ""
                     
-                    # Fallback to OCR if page has almost no text
-                    if len(text.strip()) < 30:
+                    # 2. If native text is poor or empty, run fast thresholded OCR
+                    if len(text.strip()) < 50 or "Registration" not in text:
                         try:
-                            img = page.to_image(resolution=120).original
-                            text = pytesseract.image_to_string(img, lang="eng+ben")
-                            del img
+                            raw_img = page.to_image(resolution=120).original
+                            cleaned_img = preprocess_image_remove_watermark(raw_img)
+                            text = pytesseract.image_to_string(cleaned_img, lang="eng", config="--psm 6")
+                            del raw_img, cleaned_img
                             gc.collect()
                         except Exception as ocr_err:
-                            print(f"OCR Error on Page {page_num}: {ocr_err}")
-                            continue
+                            print(f"OCR Exception on Page {page_num}: {ocr_err}")
 
-                    # 1. Registration Number Extraction (Exact CU Pattern XXX-XXXX-XXXX-XX)
+                    # Normalize text dashes
+                    text = re.sub(r'[—–_~]', '-', text)
+
+                    # 3. Extract Registration Number (Format: 424-1211-0240-19)
                     reg_no = None
-                    reg_match = re.search(r'Registration\s*No\.?\s*[\:\s]*([0-9]{3}\-[0-9]{4}\-[0-9]{4}\-[0-9]{2})', text, re.IGNORECASE)
+                    reg_match = re.search(r'Registration\s*No[\.\:\s]*([0-9OoQIl\-\—\–_]+)', text, re.IGNORECASE)
                     if reg_match:
-                        reg_no = reg_match.group(1).strip()
-                    else:
-                        fallback_reg = re.search(r'\b(\d{3}\-\d{4}\-\d{4}\-\d{2})\b', text)
-                        if fallback_reg:
-                            reg_no = fallback_reg.group(1).strip()
+                        reg_no = sanitize_number_str(reg_match.group(1))
+                    
+                    if not reg_no or len(reg_no) < 10:
+                        cu_reg_pattern = re.search(r'\b([0-9OoQIl]{3}[\-\—\–_][0-9OoQIl]{4}[\-\—\–_][0-9OoQIl]{4}[\-\—\–_][0-9OoQIl]{2})\b', text)
+                        if cu_reg_pattern:
+                            reg_no = sanitize_number_str(cu_reg_pattern.group(1))
 
                     if not reg_no:
-                        continue 
+                        continue # Skip page if no Registration Number found
 
-                    # 2. Roll Number Extraction (Exact CU Pattern XXXXXX-XX-XXXX)
+                    # 4. Extract Roll Number (Format: 192424-11-0044)
                     roll_no = "Unknown"
-                    roll_match = re.search(r'Roll\s*No\.?\s*[\:\s]*([0-9]{6}\-[0-9]{2}\-[0-9]{4})', text, re.IGNORECASE)
+                    roll_match = re.search(r'Roll\s*No[\.\:\s]*([0-9OoQIl\-\—\–_]+)', text, re.IGNORECASE)
                     if roll_match:
-                        roll_no = roll_match.group(1).strip()
+                        roll_no = sanitize_number_str(roll_match.group(1))
                     else:
-                        fallback_roll = re.search(r'\b(\d{6}\-\d{2}\-\d{4})\b', text)
-                        if fallback_roll:
-                            roll_no = fallback_roll.group(1).strip()
+                        cu_roll_pattern = re.search(r'\b([0-9OoQIl]{6}[\-\—\–_][0-9OoQIl]{2}[\-\—\–_][0-9OoQIl]{4})\b', text)
+                        if cu_roll_pattern:
+                            roll_no = sanitize_number_str(cu_roll_pattern.group(1))
 
-                    # 3. Student Name Extraction
-                    name_match = re.search(r'Name\s*[\:\s]+([A-Za-z\s\.]+?)(?=Registration|Roll|\n|$)', text, re.IGNORECASE)
+                    # 5. Extract Candidate Name
+                    name_match = re.search(r'Name\s*[\:\.\s]+([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\n|$)', text, re.IGNORECASE)
                     name = name_match.group(1).strip() if name_match else "Unknown Student"
 
-                    # 4. Course / Exam Title Extraction
+                    # 6. Extract Course Title
                     course_match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)\s+Semester[^\n\r,]+', text, re.IGNORECASE)
                     course = course_match.group(0).strip() if course_match else "B.A. (Honours)"
                     
@@ -168,30 +189,39 @@ async def upload_marksheet(
                     except:
                         admission_year = "Unknown"
 
-                    # 5. Extract Semester Table Rows directly from text lines
-                    sem_pattern = re.compile(
-                        r'^\s*(I|II|III|IV|V|VI)\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.\sA-Za-z]+)', 
-                        re.MULTILINE
-                    )
-                    
+                    # 7. Extract Semester Performance Table
                     sems_data = []
-                    for m in sem_pattern.finditer(text):
-                        sem_name, yr, fm, mo, cred, sgpa = m.groups()
-                        sems_data.append((sem_name, yr, mo, sgpa.strip()))
+                    for line in text.splitlines():
+                        line_str = line.strip()
+                        sem_match = re.search(
+                            r'^(I|II|III|IV|V|VI)\b\s*(\d{4})?\s*(\d+)?\s*(\d+)?\s*(\d+)?\s*([\d\.]+|N\.?A\.?)?', 
+                            line_str
+                        )
+                        if sem_match:
+                            s_name = sem_match.group(1)
+                            s_year = sem_match.group(2) or ""
+                            s_marks = sem_match.group(4) or "" # Marks Obtained
+                            s_sgpa = sem_match.group(6) or ""  # SGPA
+                            sems_data.append((s_name, s_year, s_marks, s_sgpa))
 
-                    # 6. Overall CGPA and Grade Extraction (From Semester VI row)
+                    # 8. Extract Final CGPA & Grade
                     overall_cgpa = "N.A."
                     overall_grade = "Fail / Not Cleared"
                     
                     cgpa_match = re.search(
-                        r'VI\s+\d{4}\s+\d+\s+\d+\s+\d+\s+([\d\.]+)\s+\d+\s+([\d\.]+)\s+([A-Z\+\-]+)', 
+                        r'VI\b.*?\b([\d\.]+)\s+\d+\s+([\d\.]+)\s+([A-Z\+\-]+)', 
                         text
                     )
                     if cgpa_match:
                         overall_cgpa = cgpa_match.group(2)
                         overall_grade = cgpa_match.group(3)
+                    else:
+                        cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text, re.IGNORECASE)
+                        if cgpa_sub: overall_cgpa = cgpa_sub.group(1)
+                        grade_sub = re.search(r'Letter\s*Grade\s*[\:\s]*([A-Z\+\-]+)', text, re.IGNORECASE)
+                        if grade_sub: overall_grade = grade_sub.group(1)
 
-                    # 7. Save or Update Record in Database
+                    # 9. Database Upsert (Insert or Update)
                     existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
                     
                     if existing_student:
