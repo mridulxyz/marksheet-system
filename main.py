@@ -3,8 +3,18 @@ import re
 import shutil
 import secrets
 import gc
-import fitz  # PyMuPDF
 from PIL import Image
+
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
+
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
+
 import pytesseract
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
@@ -205,80 +215,102 @@ async def upload_marksheet(
         
     extracted_count = 0
     try:
-        # High-Speed C PDF Engine (PyMuPDF)
-        doc = fitz.open(temp_pdf_path)
-        
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            print(f"--- Processing Page {page_num + 1} ---")
-            
-            # Step 1: Instant Native Text Extraction via PyMuPDF (0.001s)
-            text = page.get_text("text") or ""
-            reg_no = extract_reg_no(text)
+        pages_data = []
 
-            # Step 2: High-Speed Image Render & OCR Fallback (0.02s)
-            if not reg_no:
-                print(f"Page {page_num + 1}: Registration No not in native text. Running PyMuPDF fast OCR...")
-                try:
-                    pix = page.get_pixmap(dpi=120)
+        # Strategy 1: PyMuPDF (Fast C Engine)
+        if fitz:
+            try:
+                doc = fitz.open(temp_pdf_path)
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    t = page.get_text("text") or ""
+                    pix = page.get_pixmap(dpi=110)
                     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                    gray = img.convert('L')
-                    text = pytesseract.image_to_string(gray, lang="eng")
-                    reg_no = extract_reg_no(text)
-                    del pix, img, gray
-                    gc.collect()
-                except Exception as ocr_err:
-                    print(f"OCR Error on page {page_num + 1}: {ocr_err}")
+                    pages_data.append((t, img))
+                doc.close()
+            except Exception as fe:
+                print(f"PyMuPDF error: {fe}")
+                pages_data = []
 
-            if not reg_no:
-                print(f"Page {page_num + 1}: Registration No could not be identified. Skipping.")
+        # Strategy 2: pdfplumber Fallback
+        if not pages_data and pdfplumber:
+            try:
+                with pdfplumber.open(temp_pdf_path) as pdf:
+                    for page in pdf.pages:
+                        t = page.extract_text() or ""
+                        pages_data.append((t, None))
+            except Exception as pe:
+                print(f"pdfplumber error: {pe}")
+
+        # Process Each Page
+        for page_num, (text, img) in enumerate(pages_data):
+            try:
+                print(f"--- Processing Page {page_num + 1} ---")
+                
+                reg_no = extract_reg_no(text)
+
+                # High-Speed OCR Fallback if Reg No not found
+                if not reg_no and img:
+                    print(f"Page {page_num + 1}: Triggering fast OCR...")
+                    try:
+                        gray = img.convert('L')
+                        ocr_text = pytesseract.image_to_string(gray, lang="eng")
+                        if ocr_text:
+                            text = ocr_text
+                            reg_no = extract_reg_no(text)
+                    except Exception as ocr_err:
+                        print(f"OCR Error on page {page_num + 1}: {ocr_err}")
+
+                if not reg_no:
+                    print(f"Page {page_num + 1}: Registration No not found. Skipping.")
+                    continue
+
+                roll_no = extract_roll_no(text)
+                name = extract_name(text)
+                course = extract_course(text)
+                sems_data = extract_semesters(text)
+                overall_cgpa, overall_grade = extract_cgpa_grade(text)
+
+                print(f"Page {page_num + 1} SUCCESS: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
+
+                # Database Upsert
+                existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
+                if existing_student:
+                    existing_student.name = name if name != "Unknown Student" else existing_student.name
+                    existing_student.roll_no = roll_no if roll_no != "Unknown" else existing_student.roll_no
+                    existing_student.course = course
+                    existing_student.overall_cgpa = overall_cgpa
+                    existing_student.overall_grade = overall_grade
+                    
+                    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+                    for sem in sems_data:
+                        db.add(SemesterRecord(
+                            registration_no=reg_no, semester=sem[0], year=sem[1], 
+                            marks_obtained=sem[2], sgpa=sem[3]
+                        ))
+                else:
+                    admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
+                    student = Student(
+                        registration_no=reg_no, 
+                        roll_no=roll_no, 
+                        name=name, 
+                        admission_year=admission_year, 
+                        course=course, 
+                        overall_cgpa=overall_cgpa, 
+                        overall_grade=overall_grade
+                    )
+                    db.add(student)
+                    for sem in sems_data:
+                        db.add(SemesterRecord(
+                            registration_no=reg_no, semester=sem[0], year=sem[1], 
+                            marks_obtained=sem[2], sgpa=sem[3]
+                        ))
+                        
+                extracted_count += 1
+            except Exception as page_err:
+                print(f"Error on page {page_num + 1}: {page_err}")
                 continue
 
-            # Step 3: Extract Fields
-            roll_no = extract_roll_no(text)
-            name = extract_name(text)
-            course = extract_course(text)
-            sems_data = extract_semesters(text)
-            overall_cgpa, overall_grade = extract_cgpa_grade(text)
-
-            print(f"Page {page_num + 1} SUCCESS: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
-
-            # Step 4: Database Upsert
-            existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
-            if existing_student:
-                existing_student.name = name if name != "Unknown Student" else existing_student.name
-                existing_student.roll_no = roll_no if roll_no != "Unknown" else existing_student.roll_no
-                existing_student.course = course
-                existing_student.overall_cgpa = overall_cgpa
-                existing_student.overall_grade = overall_grade
-                
-                db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-                for sem in sems_data:
-                    db.add(SemesterRecord(
-                        registration_no=reg_no, semester=sem[0], year=sem[1], 
-                        marks_obtained=sem[2], sgpa=sem[3]
-                    ))
-            else:
-                admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
-                student = Student(
-                    registration_no=reg_no, 
-                    roll_no=roll_no, 
-                    name=name, 
-                    admission_year=admission_year, 
-                    course=course, 
-                    overall_cgpa=overall_cgpa, 
-                    overall_grade=overall_grade
-                )
-                db.add(student)
-                for sem in sems_data:
-                    db.add(SemesterRecord(
-                        registration_no=reg_no, semester=sem[0], year=sem[1], 
-                        marks_obtained=sem[2], sgpa=sem[3]
-                    ))
-                    
-            extracted_count += 1
-
-        doc.close()
         db.commit()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF extraction error: {str(e)}")
