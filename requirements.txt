@@ -3,6 +3,7 @@ uvicorn
 sqlalchemy
 psycopg2-binary
 pdfplumber
+pypdf
 pytesseract
 pillow
 python-multipart
