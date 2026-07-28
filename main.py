@@ -28,8 +28,8 @@ from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
 # --- SECURITY (ADMIN LOGIN) ---
 security = HTTPBasic()
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "ssm")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ssm123")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cuadmin123")
 
 def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
@@ -88,7 +88,7 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- BULLETPROOF PARSING FUNCTIONS ---
+# --- HEADER PARSERS ---
 
 def extract_reg_no_bulletproof(text: str):
     if not text: return None, "Text empty"
@@ -154,55 +154,60 @@ def extract_course(text: str):
         return match.group(0).strip()
     return "B.A. (Honours)"
 
-def extract_semesters_bulletproof(text: str):
-    sems_data = []
-    if not text: return sems_data
+# --- TARGETED SUMMARY TABLE REGION PARSER ---
 
-    # Matches Roman Numeral + Year + Full Marks + Marks Obtained + Credit + SGPA (Handles spaces and newlines)
-    pattern = re.compile(
-        r'\b(I|II|III|IV|V|VI)\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)', 
-        re.IGNORECASE
-    )
+def parse_table_semesters(table_text: str):
+    sems = []
+    if not table_text:
+        return sems
 
-    for match in pattern.finditer(text):
-        s_name, s_year, s_fm, s_marks, s_cred, s_sgpa = match.groups()
-        sems_data.append((s_name.upper(), s_year, s_marks, s_sgpa))
+    text_clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', table_text)
 
-    return sems_data
+    # Search for semester rows in table text
+    for line in text_clean.splitlines():
+        line_str = line.strip()
+        
+        # Pattern 1: Flexible row match (I/II/III/IV/V/VI + Year + Marks + SGPA)
+        m1 = re.search(r'\b(I|II|III|IV|V|VI)\b.*?\b(\d{4})\b.*?\b(\d{2,3})\b.*?\b(\d\.\d{2,3})\b', line_str)
+        if m1:
+            s_num, s_yr, s_marks, s_sgpa = m1.groups()
+            sems.append((s_num.upper(), s_yr, s_marks, s_sgpa))
+            continue
 
-def extract_cgpa_grade_bulletproof(text: str):
-    overall_cgpa = "N.A."
-    overall_grade = "Fail / Semester Not Cleared"
-    if not text: return overall_cgpa, overall_grade
+        # Pattern 2: Space separated row match
+        m2 = re.search(r'\b(I|II|III|IV|V|VI)\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)', line_str)
+        if m2:
+            s_num, s_yr, s_fm, s_marks, s_cred, s_sgpa = m2.groups()
+            sems.append((s_num.upper(), s_yr, s_marks, s_sgpa))
 
-    # Normalize OCR spaces and commas in decimal floats
-    text_fixed = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', text)
+    return sems
 
-    # Check specifically for exact phrase "Semester not cleared"
-    is_not_cleared = bool(re.search(r'\bSemester\s+not\s+cleared\b', text_fixed, re.IGNORECASE))
+def parse_table_cgpa_grade(table_text: str):
+    cgpa = "N.A."
+    grade = "Fail / Semester Not Cleared"
+    if not table_text:
+        return cgpa, grade
+
+    text_clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', table_text)
+
+    # Check Remarks row directly in the cropped table region
+    is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_clean, re.IGNORECASE))
+
     if not is_not_cleared:
-        is_not_cleared = bool(re.search(r'\bnot\s+cleared\b', text_fixed, re.IGNORECASE))
+        # Extract all decimal GPAs (e.g. 5.624, 7.705, 6.899, 7.367, 6.527, 6.686, 6.819)
+        gpas = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
+        valid_gpas = [g for g in gpas if 1.0 <= float(g) <= 10.0]
 
-    # Extract all valid float GPAs (between 1.000 and 10.000)
-    all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_fixed)
-    valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
+        if valid_gpas:
+            # On a cleared CU Grade Sheet, CGPA is the LAST float in the summary table
+            cgpa = valid_gpas[-1]
 
-    # If student passed / qualified, the LAST float on the page is ALWAYS the CGPA
-    if not is_not_cleared and valid_gpas:
-        overall_cgpa = valid_gpas[-1]
+        # Extract Letter Grade from table region
+        grade_match = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', text_clean)
+        if grade_match:
+            grade = grade_match.group(1)
 
-    # Extract Letter Grade
-    if overall_cgpa != "N.A.":
-        post_cgpa = text_fixed.split(overall_cgpa)[-1] if overall_cgpa in text_fixed else text_fixed
-        grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', post_cgpa)
-        if grade_m:
-            overall_grade = grade_m.group(1)
-        else:
-            grade_m_global = re.search(r'Letter\s*Grade[\s\:\.\=]*([A-O][\+]?)', text_fixed, re.IGNORECASE)
-            if grade_m_global:
-                overall_grade = grade_m_global.group(1).upper()
-
-    return overall_cgpa, overall_grade
+    return cgpa, grade
 
 # --- FASTAPI APP SETUP ---
 app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
@@ -280,20 +285,23 @@ async def upload_marksheet(
         for page_num in range(len(doc)):
             try:
                 page = doc[page_num]
-                text = page.get_text("text") or ""
+                rect = page.rect
                 
-                pix = page.get_pixmap(dpi=110)
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                # 1. Full Page Text for Header Info (Reg No, Roll No, Name, Course)
+                full_text = page.get_text("text") or ""
 
-                # 1. Registration Number Extraction
-                reg_no, match_method = extract_reg_no_bulletproof(text)
-                if not reg_no and img:
+                reg_no, match_method = extract_reg_no_bulletproof(full_text)
+
+                # Fallback to OCR if header info is scanned
+                if not reg_no:
                     try:
-                        gray = img.convert('L')
+                        pix_full = page.get_pixmap(dpi=110)
+                        img_full = Image.frombytes("RGB", [pix_full.width, pix_full.height], pix_full.samples)
+                        gray = img_full.convert('L')
                         ocr_text = pytesseract.image_to_string(gray, lang="eng")
                         if ocr_text:
-                            text = ocr_text
-                            reg_no, match_method = extract_reg_no_bulletproof(text)
+                            full_text = ocr_text
+                            reg_no, match_method = extract_reg_no_bulletproof(full_text)
                     except Exception as ocr_err:
                         debug_logs.append(f"Page {page_num+1} OCR Exception: {ocr_err}")
 
@@ -301,14 +309,27 @@ async def upload_marksheet(
                     debug_logs.append(f"Page {page_num+1} Failed: {match_method}")
                     continue
 
-                # 2. Student Details
-                roll_no = extract_roll_no_bulletproof(text)
-                name = extract_name_bulletproof(text)
-                course = extract_course(text)
+                roll_no = extract_roll_no_bulletproof(full_text)
+                name = extract_name_bulletproof(full_text)
+                course = extract_course(full_text)
 
-                # 3. Semesters & CGPA/Grade Extraction
-                sems_data = extract_semesters_bulletproof(text)
-                overall_cgpa, overall_grade = extract_cgpa_grade_bulletproof(text)
+                # 2. CROP SUMMARY TABLE REGION ONLY (48% to 88% page height)
+                table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
+                table_text = page.get_text("text", clip=table_rect) or ""
+
+                # If native text in table clip is empty, run OCR on table clip
+                if len(table_text.strip()) < 20:
+                    try:
+                        pix_table = page.get_pixmap(dpi=150, clip=table_rect)
+                        img_table = Image.frombytes("RGB", [pix_table.width, pix_table.height], pix_table.samples)
+                        gray_table = img_table.convert('L')
+                        table_text = pytesseract.image_to_string(gray_table, lang="eng", config="--psm 6")
+                    except Exception as table_ocr_err:
+                        debug_logs.append(f"Page {page_num+1} Table OCR Exception: {table_ocr_err}")
+
+                # 3. Parse Semesters, CGPA, and Grade strictly from Table Region
+                sems_data = parse_table_semesters(table_text)
+                overall_cgpa, overall_grade = parse_table_cgpa_grade(table_text)
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
