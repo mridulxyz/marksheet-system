@@ -7,19 +7,16 @@
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f0f4f8; }
         
-        /* SIDEBAR STYLES */
         .sidebar { width: 260px; background-color: #1a252f; color: white; padding-top: 20px; display: flex; flex-direction: column; flex-shrink: 0; }
         .sidebar h2 { text-align: center; font-size: 20px; padding-bottom: 15px; border-bottom: 1px solid #2c3e50; margin: 0 0 10px 0; }
         .sidebar ul { list-style: none; padding: 0; margin: 0; }
         .sidebar ul li { padding: 15px 20px; cursor: pointer; border-bottom: 1px solid #2c3e50; transition: background 0.2s; font-size: 14px; font-weight: 500; }
         .sidebar ul li:hover, .sidebar ul li.active { background-color: #2980b9; border-left: 5px solid #3498db; }
         
-        /* MAIN CONTENT STYLES */
         .main-content { flex: 1; padding: 40px; overflow-y: auto; }
         .section { display: none; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .section.active { display: block; }
         
-        /* FORM CONTROLS */
         input[type="text"], input[type="file"], select, button { padding: 12px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; font-size: 14px; }
         .checkbox-container { display: flex; align-items: center; margin: 15px 0; font-weight: bold; }
         .checkbox-container input { width: 20px; height: 20px; margin-right: 10px; cursor: pointer; }
@@ -27,28 +24,24 @@
         button { background-color: #2980b9; color: white; border: none; cursor: pointer; font-weight: bold; transition: background 0.2s; }
         button:hover { background-color: #1c5980; }
         
-        /* CARDS & GRIDS */
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .result-card { display: flex; justify-content: space-around; align-items: center; background: #e8f8f5; border: 2px solid #1abc9c; border-radius: 8px; padding: 15px; margin-bottom: 20px; text-align: center; }
         .card { background: #fdfefe; border: 1px solid #bdc3c7; padding: 20px; border-radius: 8px; margin-top: 15px; }
         
-        /* TABLES */
         table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 15px; margin-bottom: 20px; }
         th, td { border: 1px solid #ddd; padding: 12px; }
         th { background-color: #2980b9; color: white; }
         
-        /* BADGES & TAGS */
         .grade-badge { display: inline-block; padding: 8px 15px; margin: 5px; background: #34495e; color: white; border-radius: 20px; font-weight: bold; }
         .status-tag { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; }
         .tag-yes { background-color: #27ae60; }
         .tag-no { background-color: #e74c3c; }
 
-        /* DIAGNOSTIC LOG BOX */
         .log-box { text-align: left; background: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 5px; margin-top: 15px; font-size: 13px; color: #856404; font-family: monospace; max-height: 200px; overflow-y: auto; }
     </style>
 </head>
 <body>
 
-    <!-- SIDEBAR NAVIGATION -->
     <div class="sidebar">
         <h2>Admin Portal</h2>
         <ul>
@@ -63,10 +56,10 @@
 
     <div class="main-content">
         
-        <!-- 1. UPLOAD MARKSHEETS SECTION -->
+        <!-- 1. UPLOAD SECTION -->
         <div id="upload" class="section active">
             <h2>Cloud OCR: Extract Marksheets</h2>
-            <p>Upload student marksheets PDF (digital or scanned) to extract academic records into the database.</p>
+            <p>Upload student marksheets PDF to extract academic records into the database.</p>
             
             <input type="file" id="pdfFile" accept="application/pdf">
             <button id="uploadBtn" onclick="uploadPDF()">Upload & Process PDF</button>
@@ -77,18 +70,30 @@
         <!-- 2. STUDENT PROFILE & SEARCH -->
         <div id="student-search" class="section">
             <h2>Search Student Academic Profile</h2>
-            <p>Enter student registration number to view complete semester SGPA, CGPA, and course details.</p>
+            <p>Enter student registration number to view complete semester SGPAs, CGPA, and course details.</p>
             
             <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 424-1211-0240-19)">
             <button onclick="fetchStudentProfile()">Search Student Database</button>
             
             <div id="profile-area" style="display: none; margin-top: 20px;">
-                <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #2980b9; padding-bottom: 5px;">
-                    <h2 id="s-name" style="margin: 0; color: #2c3e50;"></h2>
-                    <h2 id="s-grade" style="margin: 0; color: #27ae60;"></h2>
-                </div>
                 
-                <div class="info-grid" style="margin-top: 15px;">
+                <!-- PROMINENT CGPA & GRADE SUMMARY CARD -->
+                <div class="result-card">
+                    <div>
+                        <span style="font-size: 14px; color: #7f8c8d; font-weight: bold;">CANDIDATE NAME</span>
+                        <h2 id="s-name" style="margin: 5px 0 0 0; color: #2c3e50;"></h2>
+                    </div>
+                    <div>
+                        <span style="font-size: 14px; color: #7f8c8d; font-weight: bold;">FINAL CGPA</span>
+                        <h1 id="s-cgpa-banner" style="margin: 5px 0 0 0; color: #27ae60; font-size: 32px;"></h1>
+                    </div>
+                    <div>
+                        <span style="font-size: 14px; color: #7f8c8d; font-weight: bold;">OVERALL GRADE</span>
+                        <h2 id="s-grade-banner" style="margin: 5px 0 0 0; color: #8e44ad;"></h2>
+                    </div>
+                </div>
+
+                <div class="info-grid">
                     <div><b>Reg No:</b> <span id="s-reg"></span></div>
                     <div><b>Roll No:</b> <span id="s-roll"></span></div>
                     <div><b>Course:</b> <span id="s-course"></span></div>
@@ -97,7 +102,7 @@
                     <div><b>Final CGPA:</b> <span id="s-cgpa"></span></div>
                 </div>
 
-                <h3>Semester Performance Breakdown</h3>
+                <h3>Semester-wise Performance Breakdown</h3>
                 <table>
                     <thead>
                         <tr>
@@ -194,7 +199,6 @@
     <script>
         let currentLoadedRegNo = "";
 
-        // Tab Switcher
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
             document.querySelectorAll('.sidebar ul li').forEach(li => li.classList.remove('active'));
@@ -202,7 +206,7 @@
             evt.currentTarget.classList.add('active');
         }
 
-        // 1. Upload PDF with Diagnostic Logger
+        // 1. Upload PDF
         async function uploadPDF() {
             const file = document.getElementById("pdfFile").files[0];
             if (!file) return alert("Select a PDF first.");
@@ -224,7 +228,6 @@
                 msg.innerText = data.message;
                 msg.style.color = data.message.includes("0 student") ? "#d35400" : "green";
 
-                // Render Diagnostic Log Box if logs are provided
                 if (data.debug_logs && data.debug_logs.length > 0) {
                     msg.innerHTML += `<div class="log-box"><b>Diagnostic Logs:</b><br>${data.debug_logs.join('<br>')}</div>`;
                 }
@@ -237,22 +240,26 @@
             }
         }
 
-        // Helper: Fetch Student Data
         async function getStudentData(regNo) {
             const res = await fetch(`/api/student/${regNo}`);
             if (!res.ok) throw new Error("Student record not found in database.");
             return await res.json();
         }
 
-        // 2. Fetch Student Profile
+        // 2. Fetch Student Profile with Prominent CGPA
         async function fetchStudentProfile() {
             const regNo = document.getElementById("regNoSearch").value.trim();
             if (!regNo) return alert("Enter a Registration Number first.");
 
             try {
                 const data = await getStudentData(regNo);
+                
+                // Set Prominent Summary Card
                 document.getElementById("s-name").innerText = data.student.name;
-                document.getElementById("s-grade").innerText = `Grade: ${data.student.grade}`;
+                document.getElementById("s-cgpa-banner").innerText = data.student.cgpa;
+                document.getElementById("s-grade-banner").innerText = data.student.grade;
+
+                // Set Grid Details
                 document.getElementById("s-reg").innerText = data.student.reg_no;
                 document.getElementById("s-roll").innerText = data.student.roll_no;
                 document.getElementById("s-course").innerText = data.student.course;
@@ -260,10 +267,16 @@
                 document.getElementById("s-pass-year").innerText = data.student.passout_year;
                 document.getElementById("s-cgpa").innerText = data.student.cgpa;
 
+                // Set Semester Table
                 const tbody = document.getElementById("sem-table-body");
                 tbody.innerHTML = "";
                 data.semesters.forEach(s => {
-                    tbody.innerHTML += `<tr><td>${s.semester}</td><td>${s.year || "-"}</td><td>${s.marks || "-"}</td><td><b>${s.sgpa || "-"}</b></td></tr>`;
+                    tbody.innerHTML += `<tr>
+                        <td><b>Semester ${s.semester}</b></td>
+                        <td>${s.year || "-"}</td>
+                        <td>${s.marks || "-"}</td>
+                        <td><b style="color:#2980b9;">${s.sgpa || "-"}</b></td>
+                    </tr>`;
                 });
 
                 document.getElementById("profile-area").style.display = "block";
@@ -407,7 +420,7 @@
                         <td><b>${s.registration_no}</b></td>
                         <td>${s.name}</td>
                         <td>${s.course}</td>
-                        <td>${s.overall_cgpa}</td>
+                        <td><b>${s.overall_cgpa}</b></td>
                         <td><b>${s.overall_grade}</b></td>
                         <td><span class="status-tag ${s.marksheet_received ? 'tag-yes':'tag-no'}">${s.marksheet_received ? 'ISSUED':'PENDING'}</span></td>
                         <td><span class="status-tag ${s.certificate_received ? 'tag-yes':'tag-no'}">${s.certificate_received ? 'ISSUED':'PENDING'}</span></td>
