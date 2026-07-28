@@ -54,7 +54,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- AUTOMATIC SCHEMA MIGRATION FOR POSTGRESQL & SQLITE ---
+# --- AUTOMATIC SCHEMA MIGRATION ---
 def run_auto_migrations():
     try:
         with engine.connect() as conn:
@@ -185,7 +185,7 @@ def extract_semesters(text: str):
     if not text: return sems_data
     for line in text.splitlines():
         line_str = line.strip()
-        sem_m = re.search(r'^(I|II|III|IV|V|VI)\b\s*(\d{4})?\s*(\d+)?\s*(\d+)?\s*(\d+)?\s*([\d\.]+|N\.?A\.?)?', line_str)
+        sem_m = re.search(r'^\s*(I|II|III|IV|V|VI)\b\s*(\d{4})?\s*(\d+)?\s*(\d+)?\s*(\d+)?\s*([\d\.]+|N\.?A\.?)?', line_str)
         if sem_m:
             s_name = sem_m.group(1)
             s_year = sem_m.group(2) or ""
@@ -199,25 +199,34 @@ def extract_cgpa_grade(text: str):
     overall_grade = "Fail / Semester Not Cleared"
     if not text: return overall_cgpa, overall_grade
 
-    # Match Semester VI row: VI 2024 400 270 24 6.686 140 6.819 B+
-    vi_row_match = re.search(
-        r'VI\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)\s+(\d+)\s+([\d\.]+)\s+([A-Z\+\-]+)', 
-        text
-    )
-    if vi_row_match:
-        overall_cgpa = vi_row_match.group(7) # 6.819
-        overall_grade = vi_row_match.group(8) # B+
-        return overall_cgpa, overall_grade
+    # Search specifically inside the Semester VI row
+    vi_line_match = re.search(r'\bVI\b[^\n\r]*', text)
+    if vi_line_match:
+        vi_line = vi_line_match.group(0)
+        
+        # Find all decimal numbers in the VI line
+        decimals = re.findall(r'\b\d+\.\d+\b', vi_line)
+        if len(decimals) >= 2:
+            overall_cgpa = decimals[-1]  # The second/last decimal in VI row is CGPA (e.g. 6.819)
+        elif len(decimals) == 1:
+            if "CGPA" in text:
+                overall_cgpa = decimals[0]
 
-    cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text, re.IGNORECASE)
-    if cgpa_sub: 
-        overall_cgpa = cgpa_sub.group(1)
+        # Match valid letter grades on the VI line
+        grade_match = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|F)\b', vi_line)
+        if grade_match:
+            overall_grade = grade_match.group(1)
 
-    grade_sub = re.search(r'Letter\s*Grade\s*[\:\s]*([A-Z\+\-]+)', text, re.IGNORECASE)
-    if grade_sub:
-        g_val = grade_sub.group(1).strip()
-        if g_val.upper() != "SHEET":
-            overall_grade = g_val
+    # Global Fallback Search
+    if overall_cgpa == "N.A.":
+        cgpa_search = re.search(r'CGPA[^\d]{0,15}(\d+\.\d+)', text, re.IGNORECASE)
+        if cgpa_search:
+            overall_cgpa = cgpa_search.group(1)
+
+    if overall_grade == "Fail / Semester Not Cleared":
+        grade_search = re.search(r'(?:Letter\s*Grade|Grade)[^\w]{0,10}\b(A\+|A|B\+|B|C\+|C|D|P|F)\b', text, re.IGNORECASE)
+        if grade_search:
+            overall_grade = grade_search.group(1)
 
     return overall_cgpa, overall_grade
 
@@ -347,7 +356,7 @@ async def upload_marksheet(
                 extracted_count += 1
                 debug_logs.append(f"Page {page_num+1} Success ({match_method}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
             except Exception as page_err:
-                db.rollback() # Reset failed transaction state
+                db.rollback()
                 debug_logs.append(f"Page {page_num+1} DB Exception: {page_err}")
                 continue
 
