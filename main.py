@@ -156,7 +156,7 @@ def extract_course(text: str):
         return match.group(0).strip()
     return "B.A. (Honours)"
 
-# --- TARGETED SUMMARY TABLE REGION PARSER ---
+# --- BULLETPROOF SUMMARY TABLE REGION PARSER ---
 
 def parse_summary_table(table_text: str):
     sems = []
@@ -165,52 +165,60 @@ def parse_summary_table(table_text: str):
     if not table_text:
         return sems, cgpa, grade
 
+    # Clean text: replace OCR commas in decimals with dots
     text_clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', table_text)
 
     # 1. Check if Semester Not Cleared
     is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_clean, re.IGNORECASE))
 
-    # 2. Extract All 6 Semester Rows
-    # Format: Roman Numeral + Year (4 digits) + Full Marks (3 digits) + Marks Obtained (2-3 digits) + Semester Credit (2 digits) + SGPA (float)
-    row_pattern = re.compile(
-        r'\b(I|II|III|IV|V|VI)\b\s+(\d{4})\s+(\d{3})\s+(\d{2,3})\s+(\d{2})\s+([\d\.]+)',
-        re.IGNORECASE
-    )
+    # 2. Tokenize and extract all 6 semester rows
+    lines = [line.strip() for line in text_clean.splitlines() if line.strip()]
+    sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
 
-    for m in row_pattern.finditer(text_clean):
-        s_num, s_yr, s_fm, s_marks, s_cred, s_sgpa = m.groups()
-        sems.append({
-            "semester": s_num.upper(),
-            "year": s_yr,
-            "full_marks": s_fm,
-            "marks": s_marks,
-            "credit": s_cred,
-            "sgpa": s_sgpa
-        })
+    for line in lines:
+        for sem in sem_keys:
+            if re.search(rf'\b{sem}\b', line):
+                years = re.findall(r'\b(20\d\d)\b', line)
+                if not years:
+                    continue
+                s_yr = years[0]
 
-    # 3. Extract CGPA and Grade specifically from Semester VI row or table
+                integers = re.findall(r'\b(\d{2,3})\b', line)
+                integers = [i for i in integers if i != s_yr]
+
+                floats = re.findall(r'\b([1-9]\.\d{2,3})\b', line)
+
+                s_fm = integers[0] if len(integers) >= 1 else "400"
+                s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
+                s_cred = integers[2] if len(integers) >= 3 else "20"
+                s_sgpa = floats[0] if floats else "N.A."
+
+                if not any(item["semester"] == sem for item in sems):
+                    sems.append({
+                        "semester": sem,
+                        "year": s_yr,
+                        "full_marks": s_fm,
+                        "marks": s_marks,
+                        "credit": s_cred,
+                        "sgpa": s_sgpa
+                    })
+
+    # Sort semesters in order: I, II, III, IV, V, VI
+    sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
+    sems = sorted(sems, key=lambda x: sem_order.get(x["semester"], 99))
+
+    # 3. Extract CGPA and Letter Grade (Grade B+, A+, etc.)
     if not is_not_cleared:
-        # Semester VI Row with CGPA and Grade: VI 2024 400 270 24 6.686 140 6.819 B+
-        vi_match = re.search(
-            r'\bVI\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)\s+(\d+)\s+([\d\.]+)\s+([A-Z\+\-]+)',
-            text_clean
-        )
-        if vi_match:
-            cgpa = vi_match.group(7) # 6.819
-            grade_val = vi_match.group(8) # B+
-            if grade_val.upper() in ["A+", "A", "B+", "B", "C+", "C", "D", "O"]:
-                grade = grade_val
-        else:
-            # Fallback CGPA search (Last float in table)
-            gpas = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
-            valid_gpas = [g for g in gpas if 1.0 <= float(g) <= 10.0]
-            if valid_gpas:
-                cgpa = valid_gpas[-1]
-            
-            # Fallback Grade search (Excludes status code P)
-            grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|O)\b', text_clean)
-            if grade_m:
-                grade = grade_m.group(1)
+        all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
+        valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
+
+        if valid_gpas:
+            cgpa = valid_gpas[-1]  # The last float on a cleared CU Grade Sheet is ALWAYS CGPA (6.819)
+
+        # Uses negative lookahead (?!\w) to correctly capture '+' in B+, A+, C+
+        grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
+        if grade_m:
+            grade = grade_m.group(1)
 
     return sems, cgpa, grade
 
