@@ -32,7 +32,7 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-# --- DATABASE SETUP (Cloud PostgreSQL / Local SQLite) ---
+# --- DATABASE SETUP ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./calcutta_university.db")
 if DATABASE_URL.startswith("postgres://"): 
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -104,7 +104,6 @@ def serve_frontend(username: str = Depends(authenticate_admin)):
 
 # --- API ENDPOINTS ---
 
-# 1. Upload & Extract Marksheets PDF (Optimized for Render Free Tier)
 @app.post("/api/admin/upload-marksheet")
 async def upload_marksheet(
     file: UploadFile = File(...), 
@@ -120,33 +119,50 @@ async def upload_marksheet(
         with pdfplumber.open(temp_pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
                 try:
-                    # 1. Native Text Extraction (Fast & Very Low RAM)
                     text = page.extract_text() or ""
                     
-                    # 2. OCR Fallback ONLY if page text is less than 50 characters (Scanned PDF)
-                    if len(text.strip()) < 50:
+                    # OCR fallback ONLY if native text extraction fails (< 20 characters)
+                    if len(text.strip()) < 20:
                         try:
-                            # Using 130 DPI to stay under Render's 512MB RAM limit
-                            img = page.to_image(resolution=130).original
+                            img = page.to_image(resolution=120).original
                             text = pytesseract.image_to_string(img, lang="eng+ben")
                             del img
-                            gc.collect() # Force garbage collection
+                            gc.collect()
                         except Exception as ocr_err:
-                            print(f"OCR Exception on Page {page_num}: {ocr_err}")
+                            print(f"OCR Error on Page {page_num}: {ocr_err}")
                             continue
 
-                    # Extract Student Header Info
-                    name_match = re.search(r'Name[\s\.\:]+([A-Za-z\s]+)(?=\n|Registration|Roll)', text, re.IGNORECASE)
-                    reg_match = re.search(r'Registration\s*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
-                    roll_match = re.search(r'Roll[\s\&]*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
-                    course_match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)\s+(Major|MDC|Honours|General)', text, re.IGNORECASE)
+                    # 1. Flexible Registration Number Matching (Handles Regn. No. / Reg No. / Reg. No. / Pattern)
+                    reg_no = None
+                    reg_match = re.search(r'(?:Registration|Regn|Reg)[\s\.\:\-]*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
+                    if reg_match:
+                        reg_no = reg_match.group(1).strip()
+                    else:
+                        # Fallback direct pattern match for CU Reg No: 123-1234-1234-21
+                        cu_reg_pattern = re.search(r'\b(\d{3}\-\d{4}\-\d{4}\-\d{2})\b', text)
+                        if cu_reg_pattern:
+                            reg_no = cu_reg_pattern.group(1).strip()
 
-                    if not reg_match:
+                    # Skip page if no registration number could be identified
+                    if not reg_no:
                         continue 
-                        
-                    reg_no = reg_match.group(1).strip()
-                    name = name_match.group(1).strip() if name_match else "Unknown"
-                    roll_no = roll_match.group(1).strip() if roll_match else "Unknown"
+
+                    # 2. Flexible Roll Number Matching
+                    roll_no = "Unknown"
+                    roll_match = re.search(r'Roll[\s\&\.]*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
+                    if roll_match:
+                        roll_no = roll_match.group(1).strip()
+                    else:
+                        cu_roll_pattern = re.search(r'\b(\d{6}\-\d{2}\-\d{4})\b', text)
+                        if cu_roll_pattern:
+                            roll_no = cu_roll_pattern.group(1).strip()
+
+                    # 3. Flexible Name Matching
+                    name_match = re.search(r'(?:Name|Candidate[\']?s?\s*Name)[\s\.\:]+([A-Za-z\s\.]+)(?=\n|Registration|Regn|Roll|Course)', text, re.IGNORECASE)
+                    name = name_match.group(1).strip() if name_match else "Unknown Student"
+
+                    # 4. Course Matching
+                    course_match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r]*', text, re.IGNORECASE)
                     course = course_match.group(0).strip().upper() if course_match else "Unknown Course"
                     
                     try:
@@ -154,7 +170,7 @@ async def upload_marksheet(
                     except:
                         admission_year = "Unknown"
 
-                    # Extract Semester & Grade Tables
+                    # Extract Semester Tables & Overall CGPA / Grade
                     tables = page.extract_tables()
                     sems_data = []
                     overall_cgpa = "N.A."
@@ -180,9 +196,24 @@ async def upload_marksheet(
                                         if len(row) > 8 and row[8]: 
                                             overall_grade = str(row[8]).strip()
 
-                    # Save / Update Student Database Entry
+                    # Database Upsert (Insert if new, Update if already exists)
                     existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
-                    if not existing_student:
+                    
+                    if existing_student:
+                        existing_student.name = name if name != "Unknown Student" else existing_student.name
+                        existing_student.roll_no = roll_no if roll_no != "Unknown" else existing_student.roll_no
+                        existing_student.course = course
+                        existing_student.overall_cgpa = overall_cgpa
+                        existing_student.overall_grade = overall_grade
+                        
+                        # Refresh semester records
+                        db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+                        for sem in sems_data:
+                            db.add(SemesterRecord(
+                                registration_no=reg_no, semester=sem[0], year=sem[1], 
+                                marks_obtained=sem[2], sgpa=sem[3]
+                            ))
+                    else:
                         student = Student(
                             registration_no=reg_no, 
                             roll_no=roll_no, 
@@ -195,13 +226,11 @@ async def upload_marksheet(
                         db.add(student)
                         for sem in sems_data:
                             db.add(SemesterRecord(
-                                registration_no=reg_no, 
-                                semester=sem[0], 
-                                year=sem[1], 
-                                marks_obtained=sem[2], 
-                                sgpa=sem[3]
+                                registration_no=reg_no, semester=sem[0], year=sem[1], 
+                                marks_obtained=sem[2], sgpa=sem[3]
                             ))
-                        extracted_count += 1
+                            
+                    extracted_count += 1
                 except Exception as page_err:
                     print(f"Error processing page {page_num}: {page_err}")
                     continue
@@ -213,9 +242,8 @@ async def upload_marksheet(
         if os.path.exists(temp_pdf_path): 
             os.remove(temp_pdf_path)
 
-    return {"message": f"Successfully extracted {extracted_count} student record(s)!"}
+    return {"message": f"Successfully processed {extracted_count} student record(s)!"}
 
-# 2. Get Single Student Profile & Semesters
 @app.get("/api/student/{reg_no}")
 def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -251,7 +279,6 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
         ]
     }
 
-# 3. Update Student Document & Career Status
 @app.post("/api/admin/update-status/{reg_no}")
 async def update_student_status(
     reg_no: str,
@@ -284,7 +311,6 @@ async def update_student_status(
     db.commit()
     return {"message": "Record updated successfully!"}
 
-# 4. Overall Course Grade Statistics
 @app.get("/api/admin/grade-stats")
 def get_grade_stats(db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
     stats = db.query(Student.course, Student.overall_grade, func.count(Student.registration_no)) \
@@ -300,7 +326,6 @@ def get_grade_stats(db: Session = Depends(get_db), user: str = Depends(authentic
         
     return result
 
-# 5. Get Master Directory (All Students List)
 @app.get("/api/admin/all-students")
 def get_all_students(db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
     return db.query(Student).all()
