@@ -171,35 +171,20 @@ def extract_cgpa_grade_bulletproof(text: str):
     overall_grade = "Fail / Semester Not Cleared"
     if not text: return overall_cgpa, overall_grade
 
-    # Normalize spaces around decimal points and fix OCR commas (e.g. 6,819 -> 6.819)
+    # Fix OCR spaces around decimals and commas
     text_fixed = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', text)
 
-    # 1. Check Remarks section specifically
-    remarks_match = re.search(r'Remarks\s*[\:\.]*\s*([^\n\r]+)', text_fixed, re.IGNORECASE)
-    is_failed = False
-    
-    if remarks_match:
-        rem_str = remarks_match.group(1).lower()
-        if "not cleared" in rem_str or "semester nc" in rem_str or "failed" in rem_str:
-            is_failed = True
-    else:
-        if re.search(r'Semester\s*not\s*cleared', text_fixed, re.IGNORECASE):
-            is_failed = True
+    # Check specifically for "not cleared" (Excludes generic "Failed" in footer legend)
+    is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared|Semester\s*NC)', text_fixed, re.IGNORECASE))
 
-    # 2. Extract CGPA if student passed / qualified
-    if not is_failed:
-        all_floats = re.findall(r'\b([0-9]\.\d{2,3})\b', text_fixed)
-        valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
+    all_floats = re.findall(r'\b([0-9]\.\d{2,3})\b', text_fixed)
+    valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
 
-        if valid_gpas:
-            # On a cleared CU Grade Sheet, the LAST float on the page is ALWAYS the CGPA
-            overall_cgpa = valid_gpas[-1]
-        else:
-            cg_m = re.search(r'CGPA[^\d]{0,30}(\d+\.\d+)', text_fixed, re.IGNORECASE)
-            if cg_m:
-                overall_cgpa = cg_m.group(1)
+    # If student passed / qualified, the last float is ALWAYS the CGPA
+    if not is_not_cleared and valid_gpas:
+        overall_cgpa = valid_gpas[-1]
 
-    # 3. Extract Letter Grade
+    # Extract Letter Grade
     if overall_cgpa != "N.A.":
         post_cgpa = text_fixed.split(overall_cgpa)[-1] if overall_cgpa in text_fixed else text_fixed
         grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', post_cgpa)
