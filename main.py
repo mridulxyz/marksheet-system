@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 import os
 import pdfplumber
@@ -28,7 +28,7 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-# --- DATABASE SETUP (Cloud PostgreSQL) ---
+# --- DATABASE SETUP (Cloud PostgreSQL / Local SQLite) ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./calcutta_university.db")
 if DATABASE_URL.startswith("postgres://"): 
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -43,14 +43,16 @@ class Student(Base):
     roll_no = Column(String)
     name = Column(String)
     admission_year = Column(String)
+    course = Column(String, default="Unknown Course") # BA MDC, BCOM Major, etc.
     overall_cgpa = Column(String) 
     overall_grade = Column(String)
     
-    # NEW FIELDS: Marksheet Collection & Post-Graduation
-    marksheet_collected_date = Column(String, default="Not Collected") 
-    post_grad_status = Column(String, default="Pending") # Job, Higher Study
-    post_grad_details = Column(String, default="") # Company, College
-    proof_document_path = Column(String, default="") # Path to uploaded proof
+    # NEW FIELDS: Checkboxes & Status
+    marksheet_received = Column(Boolean, default=False)
+    certificate_received = Column(Boolean, default=False)
+    post_grad_status = Column(String, default="Unemployed") # Govt Job, Pvt Job, Business...
+    post_grad_details = Column(String, default="") 
+    proof_document_path = Column(String, default="") 
     
     semesters = relationship("SemesterRecord", back_populates="student")
 
@@ -94,8 +96,6 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
         with pdfplumber.open(temp_pdf_path) as pdf:
             for page in pdf.pages:
                 text = page.extract_text() or ""
-                
-                # Use OCR if it's a scanned image
                 if len(text.strip()) < 50:
                     img = page.to_image(resolution=300).original
                     text = pytesseract.image_to_string(img)
@@ -104,12 +104,14 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
                 name_match = re.search(r'Name[\s\.\:]+([A-Za-z\s]+)(?=\n|Registration|Roll)', text, re.IGNORECASE)
                 reg_match = re.search(r'Registration\s*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
                 roll_match = re.search(r'Roll[\s\&]*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
+                course_match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)\s+(Major|MDC|Honours|General)', text, re.IGNORECASE)
 
                 if not reg_match: continue 
                     
                 reg_no = reg_match.group(1).strip()
                 name = name_match.group(1).strip() if name_match else "Unknown"
                 roll_no = roll_match.group(1).strip() if roll_match else "Unknown"
+                course = course_match.group(0).strip().upper() if course_match else "Unknown Course"
                 try: admission_year = "20" + reg_no.split("-")[-1]
                 except: admission_year = "Unknown"
 
@@ -117,7 +119,7 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
                 tables = page.extract_tables()
                 sems_data = []
                 overall_cgpa = "N.A."
-                overall_grade = "N.A."
+                overall_grade = "Fail" # Default till proven otherwise
                 
                 if tables:
                     for table in tables:
@@ -134,7 +136,6 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
                                     sgpa = str(row[5]).strip() if len(row) > 5 and row[5] else ""
                                     sems_data.append((sem_name, yr, mo, sgpa))
                                     
-                                    # VI semester row usually holds the final CGPA
                                     if sem_name == 'VI':
                                         if len(row) > 7 and row[7]: overall_cgpa = str(row[7]).strip()
                                         if len(row) > 8 and row[8]: overall_grade = str(row[8]).strip()
@@ -144,10 +145,10 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
                 if not existing_student:
                     student = Student(
                         registration_no=reg_no, roll_no=roll_no, name=name, 
-                        admission_year=admission_year, overall_cgpa=overall_cgpa, overall_grade=overall_grade
+                        admission_year=admission_year, course=course, 
+                        overall_cgpa=overall_cgpa, overall_grade=overall_grade
                     )
                     db.add(student)
-                    # Save all 6 semesters
                     for sem in sems_data:
                         db.add(SemesterRecord(
                             registration_no=reg_no, semester=sem[0], year=sem[1], 
@@ -158,14 +159,16 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
     finally:
         if os.path.exists(temp_pdf_path): os.remove(temp_pdf_path)
 
-    return {"message": f"Successfully extracted {extracted_count} full student records via Cloud OCR!"}
+    return {"message": f"Successfully extracted {extracted_count} full student records!"}
 
 @app.post("/api/admin/update-status/{reg_no}")
 async def update_student_status(
     reg_no: str,
-    collection_date: str = Form(...),
+    course: str = Form(...),
+    marksheet_received: bool = Form(...),
+    certificate_received: bool = Form(...),
     status: str = Form(...),
-    details: str = Form(...),
+    details: str = Form(""),
     proof_file: UploadFile = File(None),
     db: Session = Depends(get_db),
     user: str = Depends(authenticate_admin)
@@ -173,7 +176,9 @@ async def update_student_status(
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if not student: raise HTTPException(status_code=404, detail="Student not found")
 
-    student.marksheet_collected_date = collection_date
+    student.course = course
+    student.marksheet_received = marksheet_received
+    student.certificate_received = certificate_received
     student.post_grad_status = status
     student.post_grad_details = details
 
@@ -185,7 +190,7 @@ async def update_student_status(
         student.proof_document_path = file_path
 
     db.commit()
-    return {"message": "Marksheet Collection & Proof updated successfully!"}
+    return {"message": "Record updated successfully!"}
 
 @app.get("/api/student/{reg_no}")
 def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
@@ -194,13 +199,35 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
     
     sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
     
+    # Try to deduce passout year from VI semester year
+    passout_year = "Unknown"
+    for s in sems:
+        if s.semester == "VI" and s.year:
+            passout_year = s.year
+
     return {
         "student": {
             "name": student.name, "reg_no": student.registration_no, "roll_no": student.roll_no,
+            "admission_year": student.admission_year, "passout_year": passout_year, "course": student.course,
             "cgpa": student.overall_cgpa, "grade": student.overall_grade,
-            "collection_date": student.marksheet_collected_date,
-            "status": student.post_grad_status, "details": student.post_grad_details,
-            "proof": student.proof_document_path
+            "marksheet_received": student.marksheet_received, "certificate_received": student.certificate_received,
+            "status": student.post_grad_status, "details": student.post_grad_details, "proof": student.proof_document_path
         },
         "semesters": [{"semester": s.semester, "year": s.year, "marks": s.marks_obtained, "sgpa": s.sgpa} for s in sems]
     }
+
+@app.get("/api/admin/grade-stats")
+def get_grade_stats(db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
+    # Group by Course and Grade, count how many students
+    stats = db.query(Student.course, Student.overall_grade, func.count(Student.registration_no)) \
+              .group_by(Student.course, Student.overall_grade).all()
+    
+    result = {}
+    for course, grade, count in stats:
+        c = course if course else "Unknown Course"
+        g = grade if grade else "Fail/NA"
+        if c not in result:
+            result[c] = {}
+        result[c][g] = count
+        
+    return result
