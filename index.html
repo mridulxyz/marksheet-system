@@ -112,8 +112,10 @@
                     <thead>
                         <tr>
                             <th>Semester</th>
-                            <th>Exam Year</th>
-                            <th>Total Marks</th>
+                            <th>Year</th>
+                            <th>Full Marks</th>
+                            <th>Marks Obtained</th>
+                            <th>Semester Credit</th>
                             <th>SGPA</th>
                         </tr>
                     </thead>
@@ -268,13 +270,16 @@
                 document.getElementById("s-pass-year").innerText = data.student.passout_year;
                 document.getElementById("s-cgpa").innerText = data.student.cgpa;
 
+                // Populate 6-column input table matching the PDF marksheet
                 const tbody = document.getElementById("sem-table-body");
                 tbody.innerHTML = "";
                 data.semesters.forEach(s => {
                     tbody.innerHTML += `<tr>
-                        <td><b>Semester ${s.semester}</b></td>
+                        <td><b>${s.semester}</b></td>
                         <td>${s.year || "-"}</td>
+                        <td>${s.full_marks || "400"}</td>
                         <td>${s.marks || "-"}</td>
+                        <td>${s.credit || "20"}</td>
                         <td><b style="color:#2980b9;">${s.sgpa || "-"}</b></td>
                     </tr>`;
                 });
