@@ -81,7 +81,9 @@ class SemesterRecord(Base):
     registration_no = Column(String, ForeignKey("students.registration_no"))
     semester = Column(String)
     year = Column(String)
+    full_marks = Column(String, default="400")
     marks_obtained = Column(String)
+    credit = Column(String, default="20")
     sgpa = Column(String)
     
     student = relationship("Student", back_populates="semesters")
@@ -156,58 +158,61 @@ def extract_course(text: str):
 
 # --- TARGETED SUMMARY TABLE REGION PARSER ---
 
-def parse_table_semesters(table_text: str):
+def parse_summary_table(table_text: str):
     sems = []
-    if not table_text:
-        return sems
-
-    text_clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', table_text)
-
-    # Search for semester rows in table text
-    for line in text_clean.splitlines():
-        line_str = line.strip()
-        
-        # Pattern 1: Flexible row match (I/II/III/IV/V/VI + Year + Marks + SGPA)
-        m1 = re.search(r'\b(I|II|III|IV|V|VI)\b.*?\b(\d{4})\b.*?\b(\d{2,3})\b.*?\b(\d\.\d{2,3})\b', line_str)
-        if m1:
-            s_num, s_yr, s_marks, s_sgpa = m1.groups()
-            sems.append((s_num.upper(), s_yr, s_marks, s_sgpa))
-            continue
-
-        # Pattern 2: Space separated row match
-        m2 = re.search(r'\b(I|II|III|IV|V|VI)\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)', line_str)
-        if m2:
-            s_num, s_yr, s_fm, s_marks, s_cred, s_sgpa = m2.groups()
-            sems.append((s_num.upper(), s_yr, s_marks, s_sgpa))
-
-    return sems
-
-def parse_table_cgpa_grade(table_text: str):
     cgpa = "N.A."
     grade = "Fail / Semester Not Cleared"
     if not table_text:
-        return cgpa, grade
+        return sems, cgpa, grade
 
     text_clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', table_text)
 
-    # Check Remarks row directly in the cropped table region
+    # 1. Check if Semester Not Cleared
     is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_clean, re.IGNORECASE))
 
+    # 2. Extract All 6 Semester Rows
+    # Format: Roman Numeral + Year (4 digits) + Full Marks (3 digits) + Marks Obtained (2-3 digits) + Semester Credit (2 digits) + SGPA (float)
+    row_pattern = re.compile(
+        r'\b(I|II|III|IV|V|VI)\b\s+(\d{4})\s+(\d{3})\s+(\d{2,3})\s+(\d{2})\s+([\d\.]+)',
+        re.IGNORECASE
+    )
+
+    for m in row_pattern.finditer(text_clean):
+        s_num, s_yr, s_fm, s_marks, s_cred, s_sgpa = m.groups()
+        sems.append({
+            "semester": s_num.upper(),
+            "year": s_yr,
+            "full_marks": s_fm,
+            "marks": s_marks,
+            "credit": s_cred,
+            "sgpa": s_sgpa
+        })
+
+    # 3. Extract CGPA and Grade specifically from Semester VI row or table
     if not is_not_cleared:
-        # Extract all decimal GPAs (e.g. 5.624, 7.705, 6.899, 7.367, 6.527, 6.686, 6.819)
-        gpas = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
-        valid_gpas = [g for g in gpas if 1.0 <= float(g) <= 10.0]
+        # Semester VI Row with CGPA and Grade: VI 2024 400 270 24 6.686 140 6.819 B+
+        vi_match = re.search(
+            r'\bVI\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)\s+(\d+)\s+([\d\.]+)\s+([A-Z\+\-]+)',
+            text_clean
+        )
+        if vi_match:
+            cgpa = vi_match.group(7) # 6.819
+            grade_val = vi_match.group(8) # B+
+            if grade_val.upper() in ["A+", "A", "B+", "B", "C+", "C", "D", "O"]:
+                grade = grade_val
+        else:
+            # Fallback CGPA search (Last float in table)
+            gpas = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
+            valid_gpas = [g for g in gpas if 1.0 <= float(g) <= 10.0]
+            if valid_gpas:
+                cgpa = valid_gpas[-1]
+            
+            # Fallback Grade search (Excludes status code P)
+            grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|O)\b', text_clean)
+            if grade_m:
+                grade = grade_m.group(1)
 
-        if valid_gpas:
-            # On a cleared CU Grade Sheet, CGPA is the LAST float in the summary table
-            cgpa = valid_gpas[-1]
-
-        # Extract Letter Grade from table region
-        grade_match = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', text_clean)
-        if grade_match:
-            grade = grade_match.group(1)
-
-    return cgpa, grade
+    return sems, cgpa, grade
 
 # --- FASTAPI APP SETUP ---
 app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
@@ -242,6 +247,8 @@ def startup_db_setup():
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_status VARCHAR DEFAULT 'Unemployed';"))
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_details VARCHAR DEFAULT '';"))
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS proof_document_path VARCHAR DEFAULT '';"))
+                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS full_marks VARCHAR DEFAULT '400';"))
+                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS credit VARCHAR DEFAULT '20';"))
                 conn.commit()
             elif "sqlite" in DATABASE_URL:
                 columns = [row[1] for row in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
@@ -252,7 +259,12 @@ def startup_db_setup():
                     if "post_grad_status" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_status VARCHAR DEFAULT 'Unemployed';"))
                     if "post_grad_details" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_details VARCHAR;"))
                     if "proof_document_path" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN proof_document_path VARCHAR;"))
-                    conn.commit()
+                
+                sem_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(semester_records);")).fetchall()]
+                if sem_columns:
+                    if "full_marks" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN full_marks VARCHAR DEFAULT '400';"))
+                    if "credit" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN credit VARCHAR DEFAULT '20';"))
+                conn.commit()
     except Exception as e:
         print(f"Startup Migration Note: {e}")
 
@@ -287,12 +299,11 @@ async def upload_marksheet(
                 page = doc[page_num]
                 rect = page.rect
                 
-                # 1. Full Page Text for Header Info (Reg No, Roll No, Name, Course)
+                # 1. Full Page Text for Header Info
                 full_text = page.get_text("text") or ""
 
                 reg_no, match_method = extract_reg_no_bulletproof(full_text)
 
-                # Fallback to OCR if header info is scanned
                 if not reg_no:
                     try:
                         pix_full = page.get_pixmap(dpi=110)
@@ -313,11 +324,10 @@ async def upload_marksheet(
                 name = extract_name_bulletproof(full_text)
                 course = extract_course(full_text)
 
-                # 2. CROP SUMMARY TABLE REGION ONLY (48% to 88% page height)
+                # 2. CROP SUMMARY TABLE REGION (48% to 88% page height)
                 table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
                 table_text = page.get_text("text", clip=table_rect) or ""
 
-                # If native text in table clip is empty, run OCR on table clip
                 if len(table_text.strip()) < 20:
                     try:
                         pix_table = page.get_pixmap(dpi=150, clip=table_rect)
@@ -328,8 +338,7 @@ async def upload_marksheet(
                         debug_logs.append(f"Page {page_num+1} Table OCR Exception: {table_ocr_err}")
 
                 # 3. Parse Semesters, CGPA, and Grade strictly from Table Region
-                sems_data = parse_table_semesters(table_text)
-                overall_cgpa, overall_grade = parse_table_cgpa_grade(table_text)
+                sems_data, overall_cgpa, overall_grade = parse_summary_table(table_text)
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -343,8 +352,13 @@ async def upload_marksheet(
                     db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
                     for sem in sems_data:
                         db.add(SemesterRecord(
-                            registration_no=reg_no, semester=sem[0], year=sem[1], 
-                            marks_obtained=sem[2], sgpa=sem[3]
+                            registration_no=reg_no, 
+                            semester=sem["semester"], 
+                            year=sem["year"], 
+                            full_marks=sem["full_marks"],
+                            marks_obtained=sem["marks"], 
+                            credit=sem["credit"],
+                            sgpa=sem["sgpa"]
                         ))
                 else:
                     admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
@@ -360,8 +374,13 @@ async def upload_marksheet(
                     db.add(student)
                     for sem in sems_data:
                         db.add(SemesterRecord(
-                            registration_no=reg_no, semester=sem[0], year=sem[1], 
-                            marks_obtained=sem[2], sgpa=sem[3]
+                            registration_no=reg_no, 
+                            semester=sem["semester"], 
+                            year=sem["year"], 
+                            full_marks=sem["full_marks"],
+                            marks_obtained=sem["marks"], 
+                            credit=sem["credit"],
+                            sgpa=sem["sgpa"]
                         ))
                         
                 extracted_count += 1
@@ -415,7 +434,14 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
             "proof": student.proof_document_path
         },
         "semesters": [
-            {"semester": s.semester, "year": s.year, "marks": s.marks_obtained, "sgpa": s.sgpa} 
+            {
+                "semester": s.semester, 
+                "year": s.year, 
+                "full_marks": s.full_marks or "400",
+                "marks": s.marks_obtained, 
+                "credit": s.credit or "20",
+                "sgpa": s.sgpa
+            } 
             for s in sems
         ]
     }
