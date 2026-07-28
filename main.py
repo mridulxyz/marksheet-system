@@ -42,15 +42,15 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-# --- DATABASE SETUP (WITH AUTO-RECONNECT SSL PING) ---
+# --- DATABASE SETUP (AUTO-RECONNECT SSL PING) ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./calcutta_university.db")
 if DATABASE_URL.startswith("postgres://"): 
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(
     DATABASE_URL, 
-    pool_pre_ping=True,      # Tests SSL connection health before query execution
-    pool_recycle=300,        # Recycles stale cloud database handles every 5 mins
+    pool_pre_ping=True,      # Auto-reconnects dropped SSL handles
+    pool_recycle=300,        # Recycles connections every 5 mins
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -91,16 +91,11 @@ os.makedirs("uploads", exist_ok=True)
 # --- HORIZONTAL WORD-RECONSTRUCTION PARSER ---
 
 def extract_text_rows_pymupdf(page):
-    """
-    Groups extracted PDF words by vertical (Y) coordinate into clean horizontal lines.
-    Fixes column-block text ordering issues.
-    """
     try:
         words = page.get_text("words")
         if not words:
             return ""
 
-        # Sort words top-to-bottom (y0), then left-to-right (x0)
         sorted_words = sorted(words, key=lambda w: (round(w[1] / 4.0), w[0]))
 
         lines = []
@@ -191,61 +186,52 @@ def extract_course(text: str):
         return match.group(0).strip()
     return "B.A. (Honours)"
 
-def extract_semesters_horizontal(text: str):
+def extract_semesters_bulletproof(text: str):
     sems_data = []
     if not text: return sems_data
 
+    # Match Semester rows anywhere in a line (Unanchored without ^ so leading watermark text doesn't break it)
+    pattern = re.compile(
+        r'\b(I|II|III|IV|V|VI)\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)', 
+        re.IGNORECASE
+    )
+
     for line in text.splitlines():
-        line_str = line.strip()
-        sem_m = re.search(r'^\s*(I|II|III|IV|V|VI)\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)', line_str)
-        if sem_m:
-            s_name, s_year, s_fm, s_marks, s_cred, s_sgpa = sem_m.groups()
-            sems_data.append((s_name, s_year, s_marks, s_sgpa))
+        match = pattern.search(line)
+        if match:
+            s_name, s_year, s_fm, s_marks, s_cred, s_sgpa = match.groups()
+            sems_data.append((s_name.upper(), s_year, s_marks, s_sgpa))
 
     return sems_data
 
-def extract_cgpa_grade_horizontal(text: str):
+def extract_cgpa_grade_bulletproof(text: str):
     overall_cgpa = "N.A."
     overall_grade = "Fail / Semester Not Cleared"
     if not text: return overall_cgpa, overall_grade
 
+    # Clean spaces around dots and fix OCR commas (e.g. 6,819 -> 6.819)
     text_fixed = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', text)
 
-    # Check Remarks section specifically
-    remarks_m = re.search(r'Remarks\s*[\:\.]*\s*([^\n\r]+)', text_fixed, re.IGNORECASE)
-    is_failed = False
-    if remarks_m:
-        rem_str = remarks_m.group(1).lower()
-        if "not cleared" in rem_str or "semester nc" in rem_str or "failed" in rem_str:
-            is_failed = True
-    else:
-        if re.search(r'Semester\s*not\s*cleared', text_fixed, re.IGNORECASE):
-            is_failed = True
+    # Check specifically for "not cleared" or "semester nc" (Excludes generic "failed" in legend)
+    is_failed = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared|Semester\s*NC)', text_fixed, re.IGNORECASE))
 
-    if not is_failed:
-        # Search inside Semester VI horizontal row line
-        vi_line_m = re.search(r'\bVI\b\s+(?:20\d\d)[^\n\r]*', text_fixed)
-        if vi_line_m:
-            line_str = vi_line_m.group(0)
-            decimals = re.findall(r'\b\d+\.\d+\b', line_str)
-            if len(decimals) >= 2:
-                overall_cgpa = decimals[-1]
-            grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', line_str)
-            if grade_m:
-                overall_grade = grade_m.group(1)
+    all_floats = re.findall(r'\b([0-9]\.\d{2,3})\b', text_fixed)
+    valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
 
-        # Fallback to last float on page
-        if overall_cgpa == "N.A.":
-            all_floats = re.findall(r'\b([0-9]\.\d{2,3})\b', text_fixed)
-            valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
-            if valid_gpas:
-                overall_cgpa = valid_gpas[-1]
+    # If student passed / qualified, the LAST float on the page is ALWAYS the CGPA
+    if not is_failed and valid_gpas:
+        overall_cgpa = valid_gpas[-1]
 
-        if overall_grade == "Fail / Semester Not Cleared" and overall_cgpa != "N.A.":
-            post_cgpa = text_fixed.split(overall_cgpa)[-1] if overall_cgpa in text_fixed else text_fixed
-            grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', post_cgpa)
-            if grade_m:
-                overall_grade = grade_m.group(1)
+    # Extract Letter Grade
+    if overall_cgpa != "N.A.":
+        post_cgpa = text_fixed.split(overall_cgpa)[-1] if overall_cgpa in text_fixed else text_fixed
+        grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|O)\b', post_cgpa)
+        if grade_m:
+            overall_grade = grade_m.group(1)
+        else:
+            grade_m_global = re.search(r'Letter\s*Grade[\s\:\.\=]*([A-O][\+]?)', text_fixed, re.IGNORECASE)
+            if grade_m_global:
+                overall_grade = grade_m_global.group(1).upper()
 
     return overall_cgpa, overall_grade
 
@@ -326,7 +312,7 @@ async def upload_marksheet(
             try:
                 page = doc[page_num]
                 
-                # Reconstruct clean horizontal text rows using PyMuPDF word coordinates
+                # Reconstruct horizontal row text using PyMuPDF word coordinates
                 horizontal_text = extract_text_rows_pymupdf(page)
                 
                 pix = page.get_pixmap(dpi=110)
@@ -354,8 +340,8 @@ async def upload_marksheet(
                 course = extract_course(horizontal_text)
 
                 # 3. Semesters & CGPA/Grade Extraction
-                sems_data = extract_semesters_horizontal(horizontal_text)
-                overall_cgpa, overall_grade = extract_cgpa_grade_horizontal(horizontal_text)
+                sems_data = extract_semesters_bulletproof(horizontal_text)
+                overall_cgpa, overall_grade = extract_cgpa_grade_bulletproof(horizontal_text)
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
