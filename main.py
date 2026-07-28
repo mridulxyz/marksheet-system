@@ -194,41 +194,29 @@ def extract_semesters(text: str):
             sems_data.append((s_name, s_year, s_marks, s_sgpa))
     return sems_data
 
-def extract_cgpa_grade(text: str):
+def extract_cgpa_grade_smart(text: str):
     overall_cgpa = "N.A."
     overall_grade = "Fail / Semester Not Cleared"
     if not text: return overall_cgpa, overall_grade
 
-    # Match Semester VI Table Row specifically (VI followed by 4-digit year e.g. 2024)
-    vi_row = re.search(r'\bVI\s+(?:20\d\d)[^\n\r]*', text)
-    if not vi_row:
-        vi_row = re.search(r'^\s*VI\b[^\n\r]*\d+[^\n\r]*', text, re.MULTILINE)
+    # 1. Extract all float GPAs from document text (e.g. 5.624, 7.705, 6.899, 7.367, 6.527, 6.686, 6.819)
+    gpa_floats = re.findall(r'\b([0-9]\.\d{2,3})\b', text)
+    valid_gpas = [g for g in gpa_floats if 1.0 <= float(g) <= 10.0]
 
-    if vi_row:
-        line_str = vi_row.group(0)
-        
-        # Find all decimal numbers in the VI line
-        decimals = re.findall(r'\b\d+\.\d+\b', line_str)
-        if len(decimals) >= 2:
-            overall_cgpa = decimals[-1]  # Last decimal in VI row is CGPA (e.g. 6.819)
-        elif len(decimals) == 1:
-            overall_cgpa = decimals[0]
-
-        # Match letter grade on VI line (e.g. B+)
-        grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|F)\b', line_str)
-        if grade_m:
-            overall_grade = grade_m.group(1)
-
-    # Global Fallback Search
+    # If 7 or more valid GPAs are found (6 SGPAs + 1 CGPA), the 7th is the CGPA
+    if len(valid_gpas) >= 7:
+        overall_cgpa = valid_gpas[-1]
+    
+    # 2. Fallback Regex for CGPA if sequence search is less than 7
     if overall_cgpa == "N.A.":
-        all_cgpa_matches = re.findall(r'CGPA[^\d\n\r]{0,20}(\d+\.\d+)', text, re.IGNORECASE)
-        if all_cgpa_matches:
-            overall_cgpa = all_cgpa_matches[-1]
+        cgpa_search = re.search(r'CGPA[\s\S]{0,20}?([0-9]\.\d{2,3})', text, re.IGNORECASE)
+        if cgpa_search:
+            overall_cgpa = cgpa_search.group(1)
 
-    if overall_grade == "Fail / Semester Not Cleared":
-        grade_m = re.search(r'(?:Letter\s*Grade|Grade|Result)[^\w\n\r]{0,15}\b(A\+|A|B\+|B|C\+|C|D|P|F)\b', text, re.IGNORECASE)
-        if grade_m:
-            overall_grade = grade_m.group(1)
+    # 3. Find Letter Grade (A+, A, B+, B, C+, C, D, P, F)
+    grade_m = re.search(r'\b(A\+|A|B\+|B|C\+|C|D|P|F)\b', text)
+    if grade_m and overall_cgpa != "N.A.":
+        overall_grade = grade_m.group(1)
 
     return overall_cgpa, overall_grade
 
@@ -320,7 +308,7 @@ async def upload_marksheet(
                 name = extract_name_bulletproof(text)
                 course = extract_course(text)
                 sems_data = extract_semesters(text)
-                overall_cgpa, overall_grade = extract_cgpa_grade(text)
+                overall_cgpa, overall_grade = extract_cgpa_grade_smart(text)
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
