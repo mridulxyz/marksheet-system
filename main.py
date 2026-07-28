@@ -90,6 +90,42 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
+# --- RECTANGLE WORD RECONSTRUCTOR ---
+
+def extract_text_rows_from_rect(page, rect_box):
+    """
+    Extracts words strictly inside rect_box and groups them into clean horizontal lines
+    by sorting words by vertical (Y) coordinate.
+    """
+    try:
+        words = page.get_text("words", clip=rect_box)
+        if not words:
+            return ""
+
+        sorted_words = sorted(words, key=lambda w: (round(w[1] / 5.0), w[0]))
+
+        lines = []
+        current_line = []
+        last_y = None
+
+        for w in sorted_words:
+            x0, y0, x1, y1, word = w[0], w[1], w[2], w[3], w[4]
+            if last_y is None or abs(y0 - last_y) <= 5:
+                current_line.append(word)
+                last_y = y0
+            else:
+                lines.append(" ".join(current_line))
+                current_line = [word]
+                last_y = y0
+
+        if current_line:
+            lines.append(" ".join(current_line))
+
+        return "\n".join(lines)
+    except Exception as e:
+        print(f"Rect extraction error: {e}")
+        return page.get_text("text", clip=rect_box) or ""
+
 # --- HEADER PARSERS ---
 
 def extract_reg_no_bulletproof(text: str):
@@ -156,9 +192,9 @@ def extract_course(text: str):
         return match.group(0).strip()
     return "B.A. (Honours)"
 
-# --- BULLETPROOF SUMMARY TABLE REGION PARSER ---
+# --- PRECISE SUMMARY TABLE PARSER ---
 
-def parse_summary_table(table_text: str):
+def parse_summary_table_precise(table_text: str):
     sems = []
     cgpa = "N.A."
     grade = "Fail / Semester Not Cleared"
@@ -170,74 +206,55 @@ def parse_summary_table(table_text: str):
     # 1. Check if Semester Not Cleared
     is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_clean, re.IGNORECASE))
 
-    # --- STRATEGY 1: Horizontal Row Line Match ---
-    lines = [line.strip() for line in text_clean.splitlines() if line.strip()]
-    sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
+    # 2. Extract Row by Row
+    lines = [l.strip() for l in text_clean.splitlines() if l.strip()]
+
+    # Row Regex: Roman Numeral + 4-digit Year + Full Marks + Marks Obtained + Credit + SGPA
+    row_regex = re.compile(
+        r'\b(I|II|III|IV|V|VI)\b\s+(\d{4})\s+(\d{3})\s+(\d{2,3})\s+(\d{2})\s+([0-9]\.\d{2,3})',
+        re.IGNORECASE
+    )
 
     for line in lines:
-        for sem in sem_keys:
-            if re.search(rf'\b{sem}\b', line):
-                years = re.findall(r'\b(20\d\d)\b', line)
-                integers = [i for i in re.findall(r'\b(\d{2,3})\b', line) if i not in years]
-                floats = re.findall(r'\b([1-9]\.\d{2,3})\b', line)
-
-                if years and integers and floats:
-                    s_yr = years[0]
-                    s_fm = integers[0] if len(integers) >= 1 else "400"
-                    s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
-                    s_cred = integers[2] if len(integers) >= 3 else "20"
-                    s_sgpa = floats[0]
-
-                    if not any(item["semester"] == sem for item in sems):
-                        sems.append({
-                            "semester": sem,
-                            "year": s_yr,
-                            "full_marks": s_fm,
-                            "marks": s_marks,
-                            "credit": s_cred,
-                            "sgpa": s_sgpa
-                        })
-
-    # --- STRATEGY 2: Column Array Zipping Fallback (For vertical/column text blocks) ---
-    if len(sems) < 5:
-        extracted_years = re.findall(r'\b(20\d\d)\b', text_clean)
-        extracted_fms = re.findall(r'\b(400|500)\b', text_clean)
-        extracted_gpas = [g for g in re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean) if 1.0 <= float(g) <= 10.0]
-        
-        all_ints = [i for i in re.findall(r'\b(\d{2,3})\b', text_clean) if i not in extracted_years and i not in extracted_fms]
-        marks_list = [i for i in all_ints if int(i) > 30]
-        credits_list = [i for i in all_ints if int(i) <= 30]
-
-        num_sems = min(len(extracted_years), len(extracted_gpas))
-        if num_sems > 0:
-            sems = []
-            for idx in range(num_sems):
-                sem_label = sem_keys[idx] if idx < len(sem_keys) else f"Sem {idx+1}"
+        m = row_regex.search(line)
+        if m:
+            s_num, s_yr, s_fm, s_marks, s_cred, s_sgpa = m.groups()
+            if not any(item["semester"] == s_num.upper() for item in sems):
                 sems.append({
-                    "semester": sem_label,
-                    "year": extracted_years[idx] if idx < len(extracted_years) else "2024",
-                    "full_marks": extracted_fms[idx] if idx < len(extracted_fms) else "400",
-                    "marks": marks_list[idx] if idx < len(marks_list) else "-",
-                    "credit": credits_list[idx] if idx < len(credits_list) else "20",
-                    "sgpa": extracted_gpas[idx]
+                    "semester": s_num.upper(),
+                    "year": s_yr,
+                    "full_marks": s_fm,
+                    "marks": s_marks,
+                    "credit": s_cred,
+                    "sgpa": s_sgpa
                 })
 
     # Sort semesters in order: I, II, III, IV, V, VI
     sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
     sems = sorted(sems, key=lambda x: sem_order.get(x["semester"], 99))
 
-    # --- 3. Extract CGPA & Letter Grade ---
+    # 3. Extract CGPA and Letter Grade if cleared
     if not is_not_cleared:
-        all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
-        valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
+        # Semester VI Row with CGPA and Grade: VI 2024 400 270 24 6.686 140 6.819 B+
+        vi_match = re.search(
+            r'\bVI\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)\s+(\d+)\s+([\d\.]+)\s+([A-Z\+\-]+)',
+            text_clean
+        )
+        if vi_match:
+            cgpa = vi_match.group(7) # 6.819
+            grade_val = vi_match.group(8) # B+
+            if grade_val.upper() in ["A+", "A", "B+", "B", "C+", "C", "D", "O"]:
+                grade = grade_val
+        else:
+            all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
+            valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
+            if valid_gpas:
+                cgpa = valid_gpas[-1]  # The last float is ALWAYS CGPA (6.819)
 
-        if valid_gpas:
-            cgpa = valid_gpas[-1]  # The last float on a cleared CU Grade Sheet is ALWAYS CGPA (6.819)
-
-        # Uses negative lookahead (?!\w) to correctly capture '+' in B+, A+, C+
-        grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
-        if grade_m:
-            grade = grade_m.group(1)
+            # Uses negative lookahead (?!\w) to capture '+' in B+, A+, C+
+            grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
+            if grade_m:
+                grade = grade_m.group(1)
 
     return sems, cgpa, grade
 
@@ -326,14 +343,14 @@ async def upload_marksheet(
                 page = doc[page_num]
                 rect = page.rect
                 
-                # 1. Full Page Text for Header Info
+                # 1. Native Full Page Text (Instant, 0.001s)
                 full_text = page.get_text("text") or ""
-
                 reg_no, match_method = extract_reg_no_bulletproof(full_text)
 
+                # Fallback to OCR ONLY if native text is empty (scanned image PDF)
                 if not reg_no:
                     try:
-                        pix_full = page.get_pixmap(dpi=110)
+                        pix_full = page.get_pixmap(dpi=100)
                         img_full = Image.frombytes("RGB", [pix_full.width, pix_full.height], pix_full.samples)
                         gray = img_full.convert('L')
                         ocr_text = pytesseract.image_to_string(gray, lang="eng")
@@ -351,21 +368,22 @@ async def upload_marksheet(
                 name = extract_name_bulletproof(full_text)
                 course = extract_course(full_text)
 
-                # 2. CROP SUMMARY TABLE REGION (48% to 88% page height)
-                table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
-                table_text = page.get_text("text", clip=table_rect) or ""
+                # 2. CROP PRECISE SUMMARY TABLE BOX (52% to 82% page height)
+                table_rect = fitz.Rect(0, rect.height * 0.52, rect.width, rect.height * 0.82)
+                table_text = extract_text_rows_from_rect(page, table_rect)
 
-                if len(table_text.strip()) < 20:
+                # Fallback to OCR on table crop if native table text is empty
+                if len(table_text.strip()) < 15:
                     try:
-                        pix_table = page.get_pixmap(dpi=150, clip=table_rect)
+                        pix_table = page.get_pixmap(dpi=130, clip=table_rect)
                         img_table = Image.frombytes("RGB", [pix_table.width, pix_table.height], pix_table.samples)
                         gray_table = img_table.convert('L')
                         table_text = pytesseract.image_to_string(gray_table, lang="eng", config="--psm 6")
                     except Exception as table_ocr_err:
                         debug_logs.append(f"Page {page_num+1} Table OCR Exception: {table_ocr_err}")
 
-                # 3. Parse Semesters, CGPA, and Grade strictly from Table Region
-                sems_data, overall_cgpa, overall_grade = parse_summary_table(table_text)
+                # 3. Parse Semesters, CGPA, and Grade
+                sems_data, overall_cgpa, overall_grade = parse_summary_table_precise(table_text)
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
