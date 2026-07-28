@@ -165,13 +165,12 @@ def parse_summary_table(table_text: str):
     if not table_text:
         return sems, cgpa, grade
 
-    # Clean text: replace OCR commas in decimals with dots
     text_clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', table_text)
 
     # 1. Check if Semester Not Cleared
     is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_clean, re.IGNORECASE))
 
-    # 2. Tokenize and extract all 6 semester rows
+    # --- STRATEGY 1: Horizontal Row Line Match ---
     lines = [line.strip() for line in text_clean.splitlines() if line.strip()]
     sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
 
@@ -179,35 +178,55 @@ def parse_summary_table(table_text: str):
         for sem in sem_keys:
             if re.search(rf'\b{sem}\b', line):
                 years = re.findall(r'\b(20\d\d)\b', line)
-                if not years:
-                    continue
-                s_yr = years[0]
-
-                integers = re.findall(r'\b(\d{2,3})\b', line)
-                integers = [i for i in integers if i != s_yr]
-
+                integers = [i for i in re.findall(r'\b(\d{2,3})\b', line) if i not in years]
                 floats = re.findall(r'\b([1-9]\.\d{2,3})\b', line)
 
-                s_fm = integers[0] if len(integers) >= 1 else "400"
-                s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
-                s_cred = integers[2] if len(integers) >= 3 else "20"
-                s_sgpa = floats[0] if floats else "N.A."
+                if years and integers and floats:
+                    s_yr = years[0]
+                    s_fm = integers[0] if len(integers) >= 1 else "400"
+                    s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
+                    s_cred = integers[2] if len(integers) >= 3 else "20"
+                    s_sgpa = floats[0]
 
-                if not any(item["semester"] == sem for item in sems):
-                    sems.append({
-                        "semester": sem,
-                        "year": s_yr,
-                        "full_marks": s_fm,
-                        "marks": s_marks,
-                        "credit": s_cred,
-                        "sgpa": s_sgpa
-                    })
+                    if not any(item["semester"] == sem for item in sems):
+                        sems.append({
+                            "semester": sem,
+                            "year": s_yr,
+                            "full_marks": s_fm,
+                            "marks": s_marks,
+                            "credit": s_cred,
+                            "sgpa": s_sgpa
+                        })
+
+    # --- STRATEGY 2: Column Array Zipping Fallback (For vertical/column text blocks) ---
+    if len(sems) < 5:
+        extracted_years = re.findall(r'\b(20\d\d)\b', text_clean)
+        extracted_fms = re.findall(r'\b(400|500)\b', text_clean)
+        extracted_gpas = [g for g in re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean) if 1.0 <= float(g) <= 10.0]
+        
+        all_ints = [i for i in re.findall(r'\b(\d{2,3})\b', text_clean) if i not in extracted_years and i not in extracted_fms]
+        marks_list = [i for i in all_ints if int(i) > 30]
+        credits_list = [i for i in all_ints if int(i) <= 30]
+
+        num_sems = min(len(extracted_years), len(extracted_gpas))
+        if num_sems > 0:
+            sems = []
+            for idx in range(num_sems):
+                sem_label = sem_keys[idx] if idx < len(sem_keys) else f"Sem {idx+1}"
+                sems.append({
+                    "semester": sem_label,
+                    "year": extracted_years[idx] if idx < len(extracted_years) else "2024",
+                    "full_marks": extracted_fms[idx] if idx < len(extracted_fms) else "400",
+                    "marks": marks_list[idx] if idx < len(marks_list) else "-",
+                    "credit": credits_list[idx] if idx < len(credits_list) else "20",
+                    "sgpa": extracted_gpas[idx]
+                })
 
     # Sort semesters in order: I, II, III, IV, V, VI
     sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
     sems = sorted(sems, key=lambda x: sem_order.get(x["semester"], 99))
 
-    # 3. Extract CGPA and Letter Grade (Grade B+, A+, etc.)
+    # --- 3. Extract CGPA & Letter Grade ---
     if not is_not_cleared:
         all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
         valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
@@ -420,6 +439,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
     
     sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
     
+    # Passout Year calculation: Exam year of Semester VI
     passout_year = "Unknown"
     for s in sems:
         if s.semester == "VI" and s.year:
