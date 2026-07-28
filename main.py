@@ -29,7 +29,6 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
     return credentials.username
 
 # --- DATABASE SETUP (Cloud PostgreSQL) ---
-# It reads from the cloud environment, or falls back to local SQLite for testing
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./calcutta_university.db")
 if DATABASE_URL.startswith("postgres://"): 
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -95,10 +94,13 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
         with pdfplumber.open(temp_pdf_path) as pdf:
             for page in pdf.pages:
                 text = page.extract_text() or ""
+                
+                # Use OCR if it's a scanned image
                 if len(text.strip()) < 50:
                     img = page.to_image(resolution=300).original
                     text = pytesseract.image_to_string(img)
 
+                # Extract Basic Info
                 name_match = re.search(r'Name[\s\.\:]+([A-Za-z\s]+)(?=\n|Registration|Roll)', text, re.IGNORECASE)
                 reg_match = re.search(r'Registration\s*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
                 roll_match = re.search(r'Roll[\s\&]*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
@@ -111,20 +113,52 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
                 try: admission_year = "20" + reg_no.split("-")[-1]
                 except: admission_year = "Unknown"
 
-                # Save to Database (Basic info)
+                # Extract Tables (Semesters, SGPA, CGPA)
+                tables = page.extract_tables()
+                sems_data = []
+                overall_cgpa = "N.A."
+                overall_grade = "N.A."
+                
+                if tables:
+                    for table in tables:
+                        if not table or len(table) < 2: continue
+                        col1_row1 = str(table[1][0]).strip() if table[1] and len(table[1])>0 and table[1][0] else ""
+                        
+                        if 'I' in col1_row1 or 'Semester' in str(table[0]):
+                            for row in table:
+                                if not row or len(row) == 0 or not row[0]: continue
+                                sem_name = str(row[0]).strip()
+                                if sem_name in ['I', 'II', 'III', 'IV', 'V', 'VI']:
+                                    yr = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+                                    mo = str(row[3]).strip() if len(row) > 3 and row[3] else ""
+                                    sgpa = str(row[5]).strip() if len(row) > 5 and row[5] else ""
+                                    sems_data.append((sem_name, yr, mo, sgpa))
+                                    
+                                    # VI semester row usually holds the final CGPA
+                                    if sem_name == 'VI':
+                                        if len(row) > 7 and row[7]: overall_cgpa = str(row[7]).strip()
+                                        if len(row) > 8 and row[8]: overall_grade = str(row[8]).strip()
+
+                # Save to Database
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
                 if not existing_student:
                     student = Student(
                         registration_no=reg_no, roll_no=roll_no, name=name, 
-                        admission_year=admission_year, overall_cgpa="Check System", overall_grade="-"
+                        admission_year=admission_year, overall_cgpa=overall_cgpa, overall_grade=overall_grade
                     )
                     db.add(student)
+                    # Save all 6 semesters
+                    for sem in sems_data:
+                        db.add(SemesterRecord(
+                            registration_no=reg_no, semester=sem[0], year=sem[1], 
+                            marks_obtained=sem[2], sgpa=sem[3]
+                        ))
                     extracted_count += 1
         db.commit()
     finally:
         if os.path.exists(temp_pdf_path): os.remove(temp_pdf_path)
 
-    return {"message": f"Successfully extracted {extracted_count} student records via Cloud OCR!"}
+    return {"message": f"Successfully extracted {extracted_count} full student records via Cloud OCR!"}
 
 @app.post("/api/admin/update-status/{reg_no}")
 async def update_student_status(
@@ -158,9 +192,15 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if not student: raise HTTPException(status_code=404, detail="Student not found")
     
+    sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
+    
     return {
-        "name": student.name, "reg_no": student.registration_no, "roll_no": student.roll_no,
-        "collection_date": student.marksheet_collected_date,
-        "status": student.post_grad_status, "details": student.post_grad_details,
-        "proof": student.proof_document_path
+        "student": {
+            "name": student.name, "reg_no": student.registration_no, "roll_no": student.roll_no,
+            "cgpa": student.overall_cgpa, "grade": student.overall_grade,
+            "collection_date": student.marksheet_collected_date,
+            "status": student.post_grad_status, "details": student.post_grad_details,
+            "proof": student.proof_document_path
+        },
+        "semesters": [{"semester": s.semester, "year": s.year, "marks": s.marks_obtained, "sgpa": s.sgpa} for s in sems]
     }
