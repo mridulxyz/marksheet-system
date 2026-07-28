@@ -28,8 +28,8 @@ from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
 # --- SECURITY (ADMIN LOGIN) ---
 security = HTTPBasic()
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cuadmin123")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "ssm")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ssm123")
 
 def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
@@ -87,38 +87,6 @@ class SemesterRecord(Base):
     student = relationship("Student", back_populates="semesters")
 
 os.makedirs("uploads", exist_ok=True)
-
-# --- HORIZONTAL WORD-RECONSTRUCTION PARSER ---
-
-def extract_text_rows_pymupdf(page):
-    try:
-        words = page.get_text("words")
-        if not words:
-            return ""
-
-        sorted_words = sorted(words, key=lambda w: (round(w[1] / 4.0), w[0]))
-
-        lines = []
-        current_line = []
-        last_y = None
-
-        for w in sorted_words:
-            x0, y0, x1, y1, word = w[0], w[1], w[2], w[3], w[4]
-            if last_y is None or abs(y0 - last_y) <= 4:
-                current_line.append(word)
-                last_y = y0
-            else:
-                lines.append(" ".join(current_line))
-                current_line = [word]
-                last_y = y0
-
-        if current_line:
-            lines.append(" ".join(current_line))
-
-        return "\n".join(lines)
-    except Exception as e:
-        print(f"Row grouping error: {e}")
-        return page.get_text("text") or ""
 
 # --- BULLETPROOF PARSING FUNCTIONS ---
 
@@ -190,17 +158,15 @@ def extract_semesters_bulletproof(text: str):
     sems_data = []
     if not text: return sems_data
 
-    # Match Semester rows anywhere in a line (Unanchored without ^ so leading watermark text doesn't break it)
+    # Matches Roman Numeral + Year + Full Marks + Marks Obtained + Credit + SGPA (Handles spaces and newlines)
     pattern = re.compile(
         r'\b(I|II|III|IV|V|VI)\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)', 
         re.IGNORECASE
     )
 
-    for line in text.splitlines():
-        match = pattern.search(line)
-        if match:
-            s_name, s_year, s_fm, s_marks, s_cred, s_sgpa = match.groups()
-            sems_data.append((s_name.upper(), s_year, s_marks, s_sgpa))
+    for match in pattern.finditer(text):
+        s_name, s_year, s_fm, s_marks, s_cred, s_sgpa = match.groups()
+        sems_data.append((s_name.upper(), s_year, s_marks, s_sgpa))
 
     return sems_data
 
@@ -209,17 +175,20 @@ def extract_cgpa_grade_bulletproof(text: str):
     overall_grade = "Fail / Semester Not Cleared"
     if not text: return overall_cgpa, overall_grade
 
-    # Clean spaces around dots and fix OCR commas (e.g. 6,819 -> 6.819)
+    # Normalize OCR spaces and commas in decimal floats
     text_fixed = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', text)
 
-    # Check specifically for "not cleared" or "semester nc" (Excludes generic "failed" in legend)
-    is_failed = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared|Semester\s*NC)', text_fixed, re.IGNORECASE))
+    # Check specifically for exact phrase "Semester not cleared"
+    is_not_cleared = bool(re.search(r'\bSemester\s+not\s+cleared\b', text_fixed, re.IGNORECASE))
+    if not is_not_cleared:
+        is_not_cleared = bool(re.search(r'\bnot\s+cleared\b', text_fixed, re.IGNORECASE))
 
-    all_floats = re.findall(r'\b([0-9]\.\d{2,3})\b', text_fixed)
+    # Extract all valid float GPAs (between 1.000 and 10.000)
+    all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_fixed)
     valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
 
     # If student passed / qualified, the LAST float on the page is ALWAYS the CGPA
-    if not is_failed and valid_gpas:
+    if not is_not_cleared and valid_gpas:
         overall_cgpa = valid_gpas[-1]
 
     # Extract Letter Grade
@@ -311,22 +280,20 @@ async def upload_marksheet(
         for page_num in range(len(doc)):
             try:
                 page = doc[page_num]
-                
-                # Reconstruct horizontal row text using PyMuPDF word coordinates
-                horizontal_text = extract_text_rows_pymupdf(page)
+                text = page.get_text("text") or ""
                 
                 pix = page.get_pixmap(dpi=110)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-                # 1. Registration Number
-                reg_no, match_method = extract_reg_no_bulletproof(horizontal_text)
+                # 1. Registration Number Extraction
+                reg_no, match_method = extract_reg_no_bulletproof(text)
                 if not reg_no and img:
                     try:
                         gray = img.convert('L')
                         ocr_text = pytesseract.image_to_string(gray, lang="eng")
                         if ocr_text:
-                            horizontal_text = ocr_text
-                            reg_no, match_method = extract_reg_no_bulletproof(horizontal_text)
+                            text = ocr_text
+                            reg_no, match_method = extract_reg_no_bulletproof(text)
                     except Exception as ocr_err:
                         debug_logs.append(f"Page {page_num+1} OCR Exception: {ocr_err}")
 
@@ -335,13 +302,13 @@ async def upload_marksheet(
                     continue
 
                 # 2. Student Details
-                roll_no = extract_roll_no_bulletproof(horizontal_text)
-                name = extract_name_bulletproof(horizontal_text)
-                course = extract_course(horizontal_text)
+                roll_no = extract_roll_no_bulletproof(text)
+                name = extract_name_bulletproof(text)
+                course = extract_course(text)
 
                 # 3. Semesters & CGPA/Grade Extraction
-                sems_data = extract_semesters_bulletproof(horizontal_text)
-                overall_cgpa, overall_grade = extract_cgpa_grade_bulletproof(horizontal_text)
+                sems_data = extract_semesters_bulletproof(text)
+                overall_cgpa, overall_grade = extract_cgpa_grade_bulletproof(text)
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
