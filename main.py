@@ -28,7 +28,7 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-# --- DATABASE SETUP (Cloud PostgreSQL / Local SQLite) ---
+# --- DATABASE SETUP ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./calcutta_university.db")
 if DATABASE_URL.startswith("postgres://"): 
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -43,14 +43,13 @@ class Student(Base):
     roll_no = Column(String)
     name = Column(String)
     admission_year = Column(String)
-    course = Column(String, default="Unknown Course") # BA MDC, BCOM Major, etc.
+    course = Column(String, default="Unknown Course")
     overall_cgpa = Column(String) 
     overall_grade = Column(String)
     
-    # NEW FIELDS: Checkboxes & Status
     marksheet_received = Column(Boolean, default=False)
     certificate_received = Column(Boolean, default=False)
-    post_grad_status = Column(String, default="Unemployed") # Govt Job, Pvt Job, Business...
+    post_grad_status = Column(String, default="Unemployed")
     post_grad_details = Column(String, default="") 
     proof_document_path = Column(String, default="") 
     
@@ -79,7 +78,7 @@ def get_db():
     try: yield db
     finally: db.close()
 
-# --- WEB UI ROUTE (Secured with Login) ---
+# --- WEB UI ROUTE ---
 @app.get("/")
 def serve_frontend(username: str = Depends(authenticate_admin)):
     return FileResponse("index.html")
@@ -100,7 +99,6 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
                     img = page.to_image(resolution=300).original
                     text = pytesseract.image_to_string(img)
 
-                # Extract Basic Info
                 name_match = re.search(r'Name[\s\.\:]+([A-Za-z\s]+)(?=\n|Registration|Roll)', text, re.IGNORECASE)
                 reg_match = re.search(r'Registration\s*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
                 roll_match = re.search(r'Roll[\s\&]*No[\.\:\s]*([A-Za-z0-9\-]+)', text, re.IGNORECASE)
@@ -115,11 +113,10 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
                 try: admission_year = "20" + reg_no.split("-")[-1]
                 except: admission_year = "Unknown"
 
-                # Extract Tables (Semesters, SGPA, CGPA)
                 tables = page.extract_tables()
                 sems_data = []
                 overall_cgpa = "N.A."
-                overall_grade = "Fail" # Default till proven otherwise
+                overall_grade = "Fail"
                 
                 if tables:
                     for table in tables:
@@ -140,7 +137,6 @@ async def upload_marksheet(file: UploadFile = File(...), db: Session = Depends(g
                                         if len(row) > 7 and row[7]: overall_cgpa = str(row[7]).strip()
                                         if len(row) > 8 and row[8]: overall_grade = str(row[8]).strip()
 
-                # Save to Database
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
                 if not existing_student:
                     student = Student(
@@ -199,7 +195,6 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
     
     sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
     
-    # Try to deduce passout year from VI semester year
     passout_year = "Unknown"
     for s in sems:
         if s.semester == "VI" and s.year:
@@ -218,7 +213,6 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
 
 @app.get("/api/admin/grade-stats")
 def get_grade_stats(db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
-    # Group by Course and Grade, count how many students
     stats = db.query(Student.course, Student.overall_grade, func.count(Student.registration_no)) \
               .group_by(Student.course, Student.overall_grade).all()
     
@@ -231,3 +225,8 @@ def get_grade_stats(db: Session = Depends(get_db), user: str = Depends(authentic
         result[c][g] = count
         
     return result
+
+# --- NEW: ALL STUDENTS LIST FOR DIRECTORY MENU ---
+@app.get("/api/admin/all-students")
+def get_all_students(db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
+    return db.query(Student).all()
