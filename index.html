@@ -1,60 +1,73 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>University Admin Portal</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f0f4f8; }
-        .sidebar { width: 250px; background-color: #1a252f; color: white; padding-top: 20px; }
-        .sidebar h2 { text-align: center; font-size: 20px; padding-bottom: 15px; border-bottom: 1px solid #2c3e50; }
-        .sidebar ul { list-style: none; padding: 0; }
-        .sidebar ul li { padding: 15px; cursor: pointer; border-bottom: 1px solid #2c3e50; }
+        .sidebar { width: 260px; background-color: #1a252f; color: white; padding-top: 20px; display: flex; flex-direction: column; }
+        .sidebar h2 { text-align: center; font-size: 20px; padding-bottom: 15px; border-bottom: 1px solid #2c3e50; margin: 0 0 10px 0; }
+        .sidebar ul { list-style: none; padding: 0; margin: 0; }
+        .sidebar ul li { padding: 15px 20px; cursor: pointer; border-bottom: 1px solid #2c3e50; transition: background 0.2s; font-size: 14px; }
         .sidebar ul li:hover, .sidebar ul li.active { background-color: #2980b9; border-left: 5px solid #3498db; }
+        
         .main-content { flex: 1; padding: 40px; overflow-y: auto; }
         .section { display: none; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .section.active { display: block; }
+        
         input[type="text"], input[type="file"], select, button { padding: 10px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
-        .checkbox-container { display: flex; align-items: center; margin: 10px 0; font-weight: bold; }
+        .checkbox-container { display: flex; align-items: center; margin: 15px 0; font-weight: bold; }
         .checkbox-container input { width: 20px; height: 20px; margin-right: 10px; cursor: pointer; }
+        
         button { background-color: #2980b9; color: white; border: none; cursor: pointer; font-weight: bold; }
         button:hover { background-color: #1c5980; }
+        
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
-        .status-card { background: #e8f8f5; border: 1px solid #1abc9c; padding: 20px; border-radius: 8px; margin-top: 20px; }
-        table { width: 100%; border-collapse: collapse; text-align: center; margin-bottom: 20px; }
+        .card { background: #fdfefe; border: 1px solid #bdc3c7; padding: 20px; border-radius: 8px; margin-top: 15px; }
+        
+        table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 15px; margin-bottom: 20px; }
         th, td { border: 1px solid #ddd; padding: 12px; }
         th { background-color: #2980b9; color: white; }
-        .stats-card { background: #fdfefe; border: 1px solid #bdc3c7; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        .stats-card h3 { margin-top: 0; color: #d35400; border-bottom: 2px solid #e67e22; padding-bottom: 5px; }
+        
         .grade-badge { display: inline-block; padding: 8px 15px; margin: 5px; background: #34495e; color: white; border-radius: 20px; font-weight: bold; }
+        .status-tag { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; }
+        .tag-yes { background-color: #27ae60; }
+        .tag-no { background-color: #e74c3c; }
     </style>
 </head>
 <body>
 
+    <!-- SIDEBAR WITH 6 MENU ITEMS -->
     <div class="sidebar">
         <h2>Admin Portal</h2>
         <ul>
-            <li class="active" onclick="switchTab('upload')">1. Upload Marksheets</li>
-            <li onclick="switchTab('student')">2. Student Details & Actions</li>
-            <li onclick="switchTab('stats'); fetchStats();">3. Overall Course Results</li>
+            <li class="active" onclick="switchTab(event, 'upload')">1. 📤 Upload Marksheets</li>
+            <li onclick="switchTab(event, 'student-search')">2. 🔍 Student Profile</li>
+            <li onclick="switchTab(event, 'doc-issuance')">3. 📜 Document Issuance</li>
+            <li onclick="switchTab(event, 'career-status')">4. 💼 Career & Placements</li>
+            <li onclick="switchTab(event, 'stats'); fetchStats();">5. 📊 Result Statistics</li>
+            <li onclick="switchTab(event, 'directory'); fetchDirectory();">6. 📁 Student Directory</li>
         </ul>
     </div>
 
     <div class="main-content">
         <!-- 1. UPLOAD SECTION -->
         <div id="upload" class="section active">
-            <h2>Cloud OCR: Extract Full Marksheets</h2>
+            <h2>Cloud OCR: Extract Marksheets</h2>
+            <p>Upload student marksheets PDF to automatically extract academic data into the database.</p>
             <input type="file" id="pdfFile" accept="application/pdf">
-            <button id="uploadBtn" onclick="uploadPDF()">Upload & Process</button>
+            <button id="uploadBtn" onclick="uploadPDF()">Upload & Process PDF</button>
             <div id="upload-msg" style="margin-top: 15px; font-weight: bold;"></div>
         </div>
 
-        <!-- 2. STUDENT SEARCH & UPDATE -->
-        <div id="student" class="section">
-            <h2>Search Student Record</h2>
-            <input type="text" id="regNo" placeholder="Enter Registration Number (e.g. 123-1234-1234-23)">
-            <button onclick="fetchStudent()">Search Database</button>
+        <!-- 2. STUDENT SEARCH & PROFILE -->
+        <div id="student-search" class="section">
+            <h2>Search Student Academic Profile</h2>
+            <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 123-1234-1234-23)">
+            <button onclick="fetchStudentProfile()">Search Student</button>
             
-            <div id="result-area" style="display: none; margin-top: 20px;">
+            <div id="profile-area" style="display: none; margin-top: 20px;">
                 <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #2980b9; padding-bottom: 5px;">
                     <h2 id="s-name" style="margin: 0; color: #2c3e50;"></h2>
                     <h2 id="s-grade" style="margin: 0; color: #27ae60;"></h2>
@@ -63,79 +76,116 @@
                 <div class="info-grid" style="margin-top: 15px;">
                     <div><b>Reg No:</b> <span id="s-reg"></span></div>
                     <div><b>Roll No:</b> <span id="s-roll"></span></div>
-                    <div><b>Year of Admission:</b> <span id="s-admin-year"></span></div>
+                    <div><b>Course:</b> <span id="s-course"></span></div>
+                    <div><b>Admission Year:</b> <span id="s-admin-year"></span></div>
                     <div><b>Passout Year:</b> <span id="s-pass-year"></span></div>
                     <div><b>Final CGPA:</b> <span id="s-cgpa"></span></div>
-                    <div><b>Proof File:</b> <span id="s-proof"></span></div>
                 </div>
 
-                <h3>Semester Performance</h3>
+                <h3>Semester Performance Breakdown</h3>
                 <table>
-                    <thead><tr><th>Semester</th><th>Exam Year</th><th>Total Marks</th><th>SGPA</th></tr></thead>
+                    <thead>
+                        <tr><th>Semester</th><th>Exam Year</th><th>Total Marks</th><th>SGPA</th></tr>
+                    </thead>
                     <tbody id="sem-table-body"></tbody>
                 </table>
-
-                <!-- UPDATE FORM -->
-                <div class="status-card">
-                    <h3 style="margin-top:0; color:#16a085;">Issue Documents & Update Career Profile</h3>
-                    
-                    <label><b>1. Update Course Name (If needed):</b></label>
-                    <input type="text" id="s-course" placeholder="e.g. BA MDC, BSC Major, BCOM...">
-
-                    <div class="checkbox-container">
-                        <input type="checkbox" id="marksheetCb">
-                        <label for="marksheetCb">Student has Received Marksheet</label>
-                    </div>
-                    
-                    <div class="checkbox-container">
-                        <input type="checkbox" id="certCb">
-                        <label for="certCb">Student has Received Certificate</label>
-                    </div>
-
-                    <label><b>Current Career Status:</b></label>
-                    <select id="postGradStatus">
-                        <option value="Unemployed">Unemployed / Looking for Job</option>
-                        <option value="Private Job">Private Job</option>
-                        <option value="Govt Job">Government Job</option>
-                        <option value="Business">Business / Self-Employed</option>
-                        <option value="Higher Study">Higher Study (M.A, M.Sc, etc.)</option>
-                    </select>
-
-                    <label><b>Job/Study Details (Optional):</b></label>
-                    <input type="text" id="postGradDetails" placeholder="e.g. TCS / Calcutta University">
-
-                    <label><b>Upload Proof (Optional - Offer Letter, ID Card):</b></label>
-                    <input type="file" id="proofFile" accept="image/*,application/pdf">
-
-                    <button onclick="updateStatus()" style="background-color: #1abc9c;">Save Updated Record</button>
-                    <div id="status-msg" style="margin-top: 10px; font-weight: bold;"></div>
-                </div>
             </div>
         </div>
 
-        <!-- 3. OVERALL COURSE RESULTS (GRADE STATS) -->
+        <!-- 3. DOCUMENT ISSUANCE -->
+        <div id="doc-issuance" class="section">
+            <h2>Document Issuance Tracker</h2>
+            <p>Issue marksheets and degree certificates to students.</p>
+            <input type="text" id="docRegNo" placeholder="Enter Registration Number">
+            <button onclick="loadDocStatus()">Load Student</button>
+
+            <div id="doc-form-area" style="display: none;" class="card">
+                <h3 id="doc-student-title"></h3>
+                
+                <div class="checkbox-container">
+                    <input type="checkbox" id="marksheetCb">
+                    <label for="marksheetCb">Marksheet Issued / Received</label>
+                </div>
+                
+                <div class="checkbox-container">
+                    <input type="checkbox" id="certCb">
+                    <label for="certCb">Certificate Issued / Received</label>
+                </div>
+
+                <button onclick="saveDocStatus()" style="background-color: #27ae60;">Update Issuance Status</button>
+                <div id="doc-msg" style="margin-top: 10px; font-weight: bold;"></div>
+            </div>
+        </div>
+
+        <!-- 4. CAREER & PLACEMENTS -->
+        <div id="career-status" class="section">
+            <h2>Career & Post-Graduation Profile</h2>
+            <p>Track job placements, higher study enrolments, and uploaded proof documents.</p>
+            <input type="text" id="careerRegNo" placeholder="Enter Registration Number">
+            <button onclick="loadCareerStatus()">Load Student</button>
+
+            <div id="career-form-area" style="display: none;" class="card">
+                <h3 id="career-student-title"></h3>
+                
+                <label><b>Update Course Name (If needed):</b></label>
+                <input type="text" id="s-course-edit" placeholder="e.g. BA MDC, BSC Major, BCOM...">
+
+                <label><b>Current Status:</b></label>
+                <select id="postGradStatus">
+                    <option value="Unemployed">Unemployed / Looking for Job</option>
+                    <option value="Private Job">Private Job</option>
+                    <option value="Govt Job">Government Job</option>
+                    <option value="Business">Business / Self-Employed</option>
+                    <option value="Higher Study">Higher Study (M.A, M.Sc, etc.)</option>
+                </select>
+
+                <label><b>Job / Institution Details:</b></label>
+                <input type="text" id="postGradDetails" placeholder="e.g. TCS / Calcutta University">
+
+                <label><b>Upload Proof (Offer Letter / ID Card / Admission Slip):</b></label>
+                <input type="file" id="proofFile" accept="image/*,application/pdf">
+                <div id="current-proof-link" style="margin: 5px 0;"></div>
+
+                <button onclick="saveCareerStatus()" style="background-color: #1abc9c; margin-top: 10px;">Save Career Details</button>
+                <div id="career-msg" style="margin-top: 10px; font-weight: bold;"></div>
+            </div>
+        </div>
+
+        <!-- 5. RESULT STATISTICS -->
         <div id="stats" class="section">
             <h2>Overall Result Statistics</h2>
-            <p>Count of students per Grade, categorized by Course.</p>
+            <p>Count of students per Grade categorized by Course.</p>
             <div id="stats-container"></div>
+        </div>
+
+        <!-- 6. STUDENT MASTER DIRECTORY -->
+        <div id="directory" class="section">
+            <h2>Student Master Directory</h2>
+            <p>Complete record of extracted students in database.</p>
+            <div id="directory-container">
+                <i>Loading directory...</i>
+            </div>
         </div>
     </div>
 
     <script>
-        function switchTab(tabId) {
+        let currentLoadedRegNo = "";
+
+        function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
             document.querySelectorAll('.sidebar ul li').forEach(li => li.classList.remove('active'));
             document.getElementById(tabId).classList.add('active');
-            event.target.classList.add('active');
+            evt.currentTarget.classList.add('active');
         }
 
+        // 1. Upload
         async function uploadPDF() {
             const file = document.getElementById("pdfFile").files[0];
             if (!file) return alert("Select a PDF first.");
             
             const btn = document.getElementById("uploadBtn");
             const msg = document.getElementById("upload-msg");
-            btn.innerText = "Processing in Cloud... Please wait";
+            btn.innerText = "Processing... Please wait";
             msg.innerText = "Extracting full marksheet details... (This may take a few minutes)";
             msg.style.color = "#d35400";
             
@@ -151,116 +201,183 @@
                 msg.innerText = "Error extracting PDF.";
                 msg.style.color = "red";
             } finally {
-                btn.innerText = "Upload & Process";
+                btn.innerText = "Upload & Process PDF";
             }
         }
 
-        let currentRegNo = "";
-        async function fetchStudent() {
-            const regNo = document.getElementById("regNo").value.trim();
-            document.getElementById("status-msg").innerText = "";
-            try {
-                const res = await fetch(`/api/student/${regNo}`);
-                if (!res.ok) throw new Error("Student not found.");
-                const data = await res.json();
-                currentRegNo = data.student.reg_no;
+        // Helper to fetch student API
+        async function getStudentData(regNo) {
+            const res = await fetch(`/api/student/${regNo}`);
+            if (!res.ok) throw new Error("Student record not found.");
+            return await res.json();
+        }
 
-                // Populate Info
+        // 2. Profile Search
+        async function fetchStudentProfile() {
+            const regNo = document.getElementById("regNoSearch").value.trim();
+            try {
+                const data = await getStudentData(regNo);
                 document.getElementById("s-name").innerText = data.student.name;
-                document.getElementById("s-grade").innerText = `Final Result: ${data.student.grade}`;
+                document.getElementById("s-grade").innerText = `Grade: ${data.student.grade}`;
                 document.getElementById("s-reg").innerText = data.student.reg_no;
                 document.getElementById("s-roll").innerText = data.student.roll_no;
+                document.getElementById("s-course").innerText = data.student.course;
                 document.getElementById("s-admin-year").innerText = data.student.admission_year;
                 document.getElementById("s-pass-year").innerText = data.student.passout_year;
                 document.getElementById("s-cgpa").innerText = data.student.cgpa;
-                
-                // Populate Edit Fields
-                document.getElementById("s-course").value = data.student.course;
-                document.getElementById("marksheetCb").checked = data.student.marksheet_received;
-                document.getElementById("certCb").checked = data.student.certificate_received;
-                document.getElementById("postGradStatus").value = data.student.status;
-                document.getElementById("postGradDetails").value = data.student.details;
 
-                if (data.student.proof) {
-                    document.getElementById("s-proof").innerHTML = `<a href="/${data.student.proof}" target="_blank">View Proof Document</a>`;
-                } else {
-                    document.getElementById("s-proof").innerText = "No document uploaded yet.";
-                }
-
-                // Populate Semesters
                 const tbody = document.getElementById("sem-table-body");
                 tbody.innerHTML = "";
                 data.semesters.forEach(s => {
                     tbody.innerHTML += `<tr><td>${s.semester}</td><td>${s.year || "-"}</td><td>${s.marks || "-"}</td><td><b>${s.sgpa || "-"}</b></td></tr>`;
                 });
 
-                document.getElementById("result-area").style.display = "block";
+                document.getElementById("profile-area").style.display = "block";
             } catch (err) {
                 alert(err.message);
             }
         }
 
-        async function updateStatus() {
-            if (!currentRegNo) return;
-            const course = document.getElementById("s-course").value;
-            const msCb = document.getElementById("marksheetCb").checked;
-            const certCb = document.getElementById("certCb").checked;
-            const status = document.getElementById("postGradStatus").value;
-            const details = document.getElementById("postGradDetails").value;
-            const file = document.getElementById("proofFile").files[0];
-            const msg = document.getElementById("status-msg");
+        // 3. Document Issuance
+        async function loadDocStatus() {
+            const regNo = document.getElementById("docRegNo").value.trim();
+            try {
+                const data = await getStudentData(regNo);
+                currentLoadedRegNo = data.student.reg_no;
+                document.getElementById("doc-student-title").innerText = `${data.student.name} (${data.student.reg_no})`;
+                document.getElementById("marksheetCb").checked = data.student.marksheet_received;
+                document.getElementById("certCb").checked = data.student.certificate_received;
+                document.getElementById("doc-form-area").style.display = "block";
+            } catch (err) { alert(err.message); }
+        }
 
+        async function saveDocStatus() {
+            if (!currentLoadedRegNo) return;
+            const data = await getStudentData(currentLoadedRegNo);
             const formData = new FormData();
-            formData.append("course", course);
-            formData.append("marksheet_received", msCb);
-            formData.append("certificate_received", certCb);
-            formData.append("status", status);
-            formData.append("details", details);
+            formData.append("course", data.student.course);
+            formData.append("marksheet_received", document.getElementById("marksheetCb").checked);
+            formData.append("certificate_received", document.getElementById("certCb").checked);
+            formData.append("status", data.student.status);
+            formData.append("details", data.student.details);
+
+            const res = await fetch(`/api/admin/update-status/${currentLoadedRegNo}`, { method: "POST", body: formData });
+            if(res.ok) document.getElementById("doc-msg").innerText = "✅ Issuance status updated!";
+        }
+
+        // 4. Career Status
+        async function loadCareerStatus() {
+            const regNo = document.getElementById("careerRegNo").value.trim();
+            try {
+                const data = await getStudentData(regNo);
+                currentLoadedRegNo = data.student.reg_no;
+                document.getElementById("career-student-title").innerText = `${data.student.name} (${data.student.reg_no})`;
+                document.getElementById("s-course-edit").value = data.student.course;
+                document.getElementById("postGradStatus").value = data.student.status;
+                document.getElementById("postGradDetails").value = data.student.details;
+
+                if (data.student.proof) {
+                    document.getElementById("current-proof-link").innerHTML = `<b>Proof Document:</b> <a href="/${data.student.proof}" target="_blank">View File</a>`;
+                } else {
+                    document.getElementById("current-proof-link").innerText = "No proof file uploaded.";
+                }
+                document.getElementById("career-form-area").style.display = "block";
+            } catch (err) { alert(err.message); }
+        }
+
+        async function saveCareerStatus() {
+            if (!currentLoadedRegNo) return;
+            const origData = await getStudentData(currentLoadedRegNo);
+            
+            const formData = new FormData();
+            formData.append("course", document.getElementById("s-course-edit").value);
+            formData.append("marksheet_received", origData.student.marksheet_received);
+            formData.append("certificate_received", origData.student.certificate_received);
+            formData.append("status", document.getElementById("postGradStatus").value);
+            formData.append("details", document.getElementById("postGradDetails").value);
+            
+            const file = document.getElementById("proofFile").files[0];
             if (file) formData.append("proof_file", file);
 
-            msg.innerText = "Saving to Database...";
-            
-            try {
-                const res = await fetch(`/api/admin/update-status/${currentRegNo}`, { method: "POST", body: formData });
-                if (res.ok) {
-                    msg.innerText = "✅ Record Successfully Updated!";
-                    msg.style.color = "green";
-                    fetchStudent(); // refresh
-                } else throw new Error();
-            } catch (err) {
-                msg.innerText = "❌ Error saving record.";
-                msg.style.color = "red";
+            const res = await fetch(`/api/admin/update-status/${currentLoadedRegNo}`, { method: "POST", body: formData });
+            if(res.ok) {
+                document.getElementById("career-msg").innerText = "✅ Career profile updated!";
+                loadCareerStatus();
             }
         }
 
+        // 5. Result Statistics
         async function fetchStats() {
             const container = document.getElementById("stats-container");
             container.innerHTML = "<i>Loading statistics...</i>";
-            
             try {
                 const res = await fetch("/api/admin/grade-stats");
                 const stats = await res.json();
-                
                 container.innerHTML = "";
                 
                 if (Object.keys(stats).length === 0) {
-                    container.innerHTML = "<p>No results extracted yet.</p>";
+                    container.innerHTML = "<p>No results found in database.</p>";
                     return;
                 }
 
-                // Build a nice card for each course
                 for (const [course, grades] of Object.entries(stats)) {
-                    let cardHtml = `<div class="stats-card"><h3>Course: ${course}</h3><div>`;
-                    
+                    let cardHtml = `<div class="card"><h3>Course: ${course}</h3><div>`;
                     for (const [grade, count] of Object.entries(grades)) {
                         cardHtml += `<span class="grade-badge">Grade ${grade}: ${count} Student(s)</span>`;
                     }
-                    
                     cardHtml += `</div></div>`;
                     container.innerHTML += cardHtml;
                 }
             } catch (err) {
                 container.innerHTML = "<p style='color:red;'>Failed to load statistics.</p>";
+            }
+        }
+
+        // 6. Master Directory
+        async function fetchDirectory() {
+            const container = document.getElementById("directory-container");
+            container.innerHTML = "<i>Loading student directory...</i>";
+            try {
+                const res = await fetch("/api/admin/all-students");
+                const students = await res.json();
+                
+                if (students.length === 0) {
+                    container.innerHTML = "<p>No students found in database.</p>";
+                    return;
+                }
+
+                let html = `<table>
+                    <thead>
+                        <tr>
+                            <th>Reg No</th>
+                            <th>Name</th>
+                            <th>Course</th>
+                            <th>CGPA</th>
+                            <th>Grade</th>
+                            <th>Marksheet</th>
+                            <th>Certificate</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+                students.forEach(s => {
+                    html += `<tr>
+                        <td><b>${s.registration_no}</b></td>
+                        <td>${s.name}</td>
+                        <td>${s.course}</td>
+                        <td>${s.overall_cgpa}</td>
+                        <td><b>${s.overall_grade}</b></td>
+                        <td><span class="status-tag ${s.marksheet_received ? 'tag-yes':'tag-no'}">${s.marksheet_received ? 'ISSUED':'PENDING'}</span></td>
+                        <td><span class="status-tag ${s.certificate_received ? 'tag-yes':'tag-no'}">${s.certificate_received ? 'ISSUED':'PENDING'}</span></td>
+                        <td>${s.post_grad_status}</td>
+                    </tr>`;
+                });
+
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            } catch (err) {
+                container.innerHTML = "<p style='color:red;'>Failed to load directory.</p>";
             }
         }
     </script>
