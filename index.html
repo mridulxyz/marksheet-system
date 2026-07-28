@@ -18,6 +18,9 @@
         button:hover { background-color: #1c5980; }
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
         .status-card { background: #e8f8f5; border: 1px solid #1abc9c; padding: 20px; border-radius: 8px; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; text-align: center; margin-bottom: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; }
+        th { background-color: #2980b9; color: white; }
     </style>
 </head>
 <body>
@@ -33,7 +36,7 @@
     <div class="main-content">
         <!-- 1. UPLOAD SECTION -->
         <div id="upload" class="section active">
-            <h2>Cloud OCR: Extract Marksheets</h2>
+            <h2>Cloud OCR: Extract Full Marksheets</h2>
             <input type="file" id="pdfFile" accept="application/pdf">
             <button id="uploadBtn" onclick="uploadPDF()">Upload & Process</button>
             <div id="upload-msg" style="margin-top: 15px; font-weight: bold;"></div>
@@ -41,20 +44,30 @@
 
         <!-- 2. STUDENT SEARCH & POST-GRAD UPDATE -->
         <div id="student" class="section">
-            <h2>Search Student & Update File</h2>
+            <h2>Search Student Record</h2>
             <input type="text" id="regNo" placeholder="Enter Registration Number...">
             <button onclick="fetchStudent()">Search Database</button>
             
             <div id="result-area" style="display: none; margin-top: 20px;">
-                <h2 id="s-name" style="color: #2c3e50; border-bottom: 2px solid #2980b9; padding-bottom: 5px;"></h2>
+                <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #2980b9; padding-bottom: 5px;">
+                    <h2 id="s-name" style="margin: 0; color: #2c3e50;"></h2>
+                    <h2 id="s-grade" style="margin: 0; color: #27ae60;"></h2>
+                </div>
                 
-                <div class="info-grid">
+                <div class="info-grid" style="margin-top: 15px;">
                     <div><b>Reg No:</b> <span id="s-reg"></span></div>
                     <div><b>Roll No:</b> <span id="s-roll"></span></div>
+                    <div><b>Final CGPA:</b> <span id="s-cgpa"></span></div>
                     <div><b>Date Collected:</b> <span id="s-date" style="color:red; font-weight:bold;"></span></div>
                     <div><b>Career Status:</b> <span id="s-status"></span></div>
                     <div><b>Proof File:</b> <span id="s-proof"></span></div>
                 </div>
+
+                <h3>Semester Performance</h3>
+                <table>
+                    <thead><tr><th>Semester</th><th>Exam Year</th><th>Total Marks</th><th>SGPA</th></tr></thead>
+                    <tbody id="sem-table-body"></tbody>
+                </table>
 
                 <!-- UPDATE FORM -->
                 <div class="status-card">
@@ -99,7 +112,7 @@
             const btn = document.getElementById("uploadBtn");
             const msg = document.getElementById("upload-msg");
             btn.innerText = "Processing in Cloud... Please wait";
-            msg.innerText = "Extracting details... (This may take a few minutes)";
+            msg.innerText = "Extracting full marksheet details... (This may take a few minutes)";
             msg.style.color = "#d35400";
             
             const formData = new FormData();
@@ -126,19 +139,29 @@
                 const res = await fetch(`/api/student/${regNo}`);
                 if (!res.ok) throw new Error("Student not found.");
                 const data = await res.json();
-                currentRegNo = data.reg_no;
+                currentRegNo = data.student.reg_no;
 
-                document.getElementById("s-name").innerText = data.name;
-                document.getElementById("s-reg").innerText = data.reg_no;
-                document.getElementById("s-roll").innerText = data.roll_no;
-                document.getElementById("s-date").innerText = data.collection_date;
-                document.getElementById("s-status").innerText = data.status + (data.details ? ` (${data.details})` : "");
+                // Populate Basic Info
+                document.getElementById("s-name").innerText = data.student.name;
+                document.getElementById("s-grade").innerText = `Grade: ${data.student.grade}`;
+                document.getElementById("s-reg").innerText = data.student.reg_no;
+                document.getElementById("s-roll").innerText = data.student.roll_no;
+                document.getElementById("s-cgpa").innerText = data.student.cgpa;
+                document.getElementById("s-date").innerText = data.student.collection_date;
+                document.getElementById("s-status").innerText = data.student.status + (data.student.details ? ` (${data.student.details})` : "");
                 
-                if (data.proof) {
-                    document.getElementById("s-proof").innerHTML = `<a href="/${data.proof}" target="_blank">View Proof File</a>`;
+                if (data.student.proof) {
+                    document.getElementById("s-proof").innerHTML = `<a href="/${data.student.proof}" target="_blank">View Proof File</a>`;
                 } else {
                     document.getElementById("s-proof").innerText = "No file uploaded.";
                 }
+
+                // Populate Semester Table
+                const tbody = document.getElementById("sem-table-body");
+                tbody.innerHTML = "";
+                data.semesters.forEach(s => {
+                    tbody.innerHTML += `<tr><td>${s.semester}</td><td>${s.year || "-"}</td><td>${s.marks || "-"}</td><td><b>${s.sgpa || "-"}</b></td></tr>`;
+                });
 
                 document.getElementById("result-area").style.display = "block";
             } catch (err) {
