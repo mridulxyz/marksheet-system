@@ -87,55 +87,79 @@ class SemesterRecord(Base):
 Base.metadata.create_all(bind=engine)
 os.makedirs("uploads", exist_ok=True)
 
-# --- HELPER PARSING FUNCTIONS ---
+# --- BULLETPROOF PARSING FUNCTIONS ---
 
-def extract_reg_no(text: str):
-    if not text: return None
-    t_clean = re.sub(r'[—–_~]', '-', text)
+def extract_reg_no_bulletproof(text: str):
+    if not text:
+        return None, "Text is empty"
 
-    match = re.search(r'(?:Registration|Regn|Reg)[\s\.\:\-]*No[\.\:\s]*([0-9OoQIl\-\s\.\/]+)', t_clean, re.IGNORECASE)
+    t = re.sub(r'[—–_~]', '-', text)
+    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
+
+    # Method 1: Label Match
+    match = re.search(r'(?:Registration|Regn|Reg|Registra)[^\d]{0,15}([0-9\-\s\.\/]{13,22})', t_fixed, re.IGNORECASE)
     if match:
-        raw_val = match.group(1).replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
-        digits = re.sub(r'\D', '', raw_val)
+        digits = re.sub(r'\D', '', match.group(1))
         if len(digits) >= 13:
             d = digits[:13]
-            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}"
+            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "Reg Label"
 
-    t_fixed = t_clean.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
-    cu_pattern = re.search(r'\b(\d{3})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{2})\b', t_fixed)
-    if cu_pattern:
-        g = cu_pattern.groups()
-        return f"{g[0]}-{g[1]}-{g[2]}-{g[3]}"
+    # Method 2: CU Pattern (3-4-4-2)
+    pattern_match = re.search(r'\b(\d{3})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{2})\b', t_fixed)
+    if pattern_match:
+        g = pattern_match.groups()
+        return f"{g[0]}-{g[1]}-{g[2]}-{g[3]}", "3-4-4-2 Pattern"
 
-    return None
+    # Method 3: Unbounded 13-Digit Search
+    all_digits_clusters = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
+    if all_digits_clusters:
+        d = all_digits_clusters[0]
+        return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "13-Digit Cluster"
 
-def extract_roll_no(text: str):
-    if not text: return "Unknown"
-    t_clean = re.sub(r'[—–_~]', '-', text)
+    return None, f"No 13-digit registration pattern found (Text Len={len(text)})"
 
-    match = re.search(r'Roll[\s\&\.]*No[\.\:\s]*([0-9OoQIl\-\s\.\/]+)', t_clean, re.IGNORECASE)
+def extract_roll_no_bulletproof(text: str):
+    if not text:
+        return "Unknown"
+
+    t = re.sub(r'[—–_~]', '-', text)
+    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
+
+    match = re.search(r'Roll[^\d]{0,15}([0-9\-\s\.\/]{12,20})', t_fixed, re.IGNORECASE)
     if match:
-        raw_val = match.group(1).replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
-        digits = re.sub(r'\D', '', raw_val)
+        digits = re.sub(r'\D', '', match.group(1))
         if len(digits) >= 12:
             d = digits[:12]
             return f"{d[:6]}-{d[6:8]}-{d[8:]}"
 
-    t_fixed = t_clean.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
-    cu_pattern = re.search(r'\b(\d{6})[\-\s\.\/]*(\d{2})[\-\s\.\/]*(\d{4})\b', t_fixed)
-    if cu_pattern:
-        g = cu_pattern.groups()
+    pattern_match = re.search(r'\b(\d{6})[\-\s\.\/]*(\d{2})[\-\s\.\/]*(\d{4})\b', t_fixed)
+    if pattern_match:
+        g = pattern_match.groups()
         return f"{g[0]}-{g[1]}-{g[2]}"
+
+    all_digits_clusters = re.findall(r'\b\d{12}\b', re.sub(r'\D', ' ', t_fixed))
+    if all_digits_clusters:
+        d = all_digits_clusters[0]
+        return f"{d[:6]}-{d[6:8]}-{d[8:]}"
 
     return "Unknown"
 
-def extract_name(text: str):
+def extract_name_bulletproof(text: str):
     if not text: return "Unknown Student"
+    
     match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text, re.IGNORECASE)
     if match:
         raw_name = re.sub(r'[^A-Za-z\s\.]', '', match.group(1)).strip()
         if len(raw_name) > 2:
             return raw_name
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in lines[:10]:
+        words = line.split()
+        if len(words) >= 2 and all(w.isupper() and w.isalpha() for w in words):
+            if "UNIVERSITY" not in line and "CALCUTTA" not in line and "EXAMINATION" not in line:
+                return line
+
     return "Unknown Student"
 
 def extract_course(text: str):
@@ -214,6 +238,8 @@ async def upload_marksheet(
         shutil.copyfileobj(file.file, buffer)
         
     extracted_count = 0
+    debug_logs = []
+    
     try:
         pages_data = []
 
@@ -229,7 +255,7 @@ async def upload_marksheet(
                     pages_data.append((t, img))
                 doc.close()
             except Exception as fe:
-                print(f"PyMuPDF error: {fe}")
+                debug_logs.append(f"PyMuPDF Error: {fe}")
                 pages_data = []
 
         # Strategy 2: pdfplumber Fallback
@@ -240,38 +266,35 @@ async def upload_marksheet(
                         t = page.extract_text() or ""
                         pages_data.append((t, None))
             except Exception as pe:
-                print(f"pdfplumber error: {pe}")
+                debug_logs.append(f"pdfplumber Error: {pe}")
 
         # Process Each Page
         for page_num, (text, img) in enumerate(pages_data):
             try:
-                print(f"--- Processing Page {page_num + 1} ---")
-                
-                reg_no = extract_reg_no(text)
+                reg_no, match_method = extract_reg_no_bulletproof(text)
 
                 # High-Speed OCR Fallback if Reg No not found
                 if not reg_no and img:
-                    print(f"Page {page_num + 1}: Triggering fast OCR...")
                     try:
                         gray = img.convert('L')
                         ocr_text = pytesseract.image_to_string(gray, lang="eng")
                         if ocr_text:
                             text = ocr_text
-                            reg_no = extract_reg_no(text)
+                            reg_no, match_method = extract_reg_no_bulletproof(text)
                     except Exception as ocr_err:
-                        print(f"OCR Error on page {page_num + 1}: {ocr_err}")
+                        debug_logs.append(f"Page {page_num+1} OCR Exception: {ocr_err}")
 
                 if not reg_no:
-                    print(f"Page {page_num + 1}: Registration No not found. Skipping.")
+                    debug_logs.append(f"Page {page_num+1} Failed: {match_method}")
                     continue
 
-                roll_no = extract_roll_no(text)
-                name = extract_name(text)
+                roll_no = extract_roll_no_bulletproof(text)
+                name = extract_name_bulletproof(text)
                 course = extract_course(text)
                 sems_data = extract_semesters(text)
                 overall_cgpa, overall_grade = extract_cgpa_grade(text)
 
-                print(f"Page {page_num + 1} SUCCESS: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
+                debug_logs.append(f"Page {page_num+1} Success ({match_method}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -308,7 +331,7 @@ async def upload_marksheet(
                         
                 extracted_count += 1
             except Exception as page_err:
-                print(f"Error on page {page_num + 1}: {page_err}")
+                debug_logs.append(f"Page {page_num+1} Exception: {page_err}")
                 continue
 
         db.commit()
@@ -318,7 +341,10 @@ async def upload_marksheet(
         if os.path.exists(temp_pdf_path): 
             os.remove(temp_pdf_path)
 
-    return {"message": f"Successfully extracted {extracted_count} student record(s)!"}
+    return {
+        "message": f"Successfully extracted {extracted_count} student record(s)!",
+        "debug_logs": debug_logs
+    }
 
 @app.get("/api/student/{reg_no}")
 def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
