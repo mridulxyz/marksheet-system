@@ -1,7 +1,7 @@
 # Use official Python image
 FROM python:3.10-slim
 
-# Install Tesseract OCR, Bengali language pack, Poppler utilities, and rendering dependencies
+# Install Tesseract OCR, Poppler, and Linux C-runtime dependencies
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-ben \
@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -26,5 +27,5 @@ COPY . .
 # Expose port for FastAPI
 EXPOSE 8000
 
-# Start the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Bind dynamically to Render's assigned PORT variable
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
