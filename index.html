@@ -5,67 +5,82 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>University Admin Portal</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f0f4f8; }
-        .sidebar { width: 260px; background-color: #1a252f; color: white; padding-top: 20px; display: flex; flex-direction: column; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f0f4f8; }
+        
+        /* SIDEBAR STYLES */
+        .sidebar { width: 260px; background-color: #1a252f; color: white; padding-top: 20px; display: flex; flex-direction: column; flex-shrink: 0; }
         .sidebar h2 { text-align: center; font-size: 20px; padding-bottom: 15px; border-bottom: 1px solid #2c3e50; margin: 0 0 10px 0; }
         .sidebar ul { list-style: none; padding: 0; margin: 0; }
-        .sidebar ul li { padding: 15px 20px; cursor: pointer; border-bottom: 1px solid #2c3e50; transition: background 0.2s; font-size: 14px; }
+        .sidebar ul li { padding: 15px 20px; cursor: pointer; border-bottom: 1px solid #2c3e50; transition: background 0.2s; font-size: 14px; font-weight: 500; }
         .sidebar ul li:hover, .sidebar ul li.active { background-color: #2980b9; border-left: 5px solid #3498db; }
         
+        /* MAIN CONTENT STYLES */
         .main-content { flex: 1; padding: 40px; overflow-y: auto; }
         .section { display: none; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .section.active { display: block; }
         
-        input[type="text"], input[type="file"], select, button { padding: 10px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
+        /* FORM CONTROLS */
+        input[type="text"], input[type="file"], select, button { padding: 12px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; font-size: 14px; }
         .checkbox-container { display: flex; align-items: center; margin: 15px 0; font-weight: bold; }
         .checkbox-container input { width: 20px; height: 20px; margin-right: 10px; cursor: pointer; }
         
-        button { background-color: #2980b9; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button { background-color: #2980b9; color: white; border: none; cursor: pointer; font-weight: bold; transition: background 0.2s; }
         button:hover { background-color: #1c5980; }
         
+        /* CARDS & GRIDS */
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
         .card { background: #fdfefe; border: 1px solid #bdc3c7; padding: 20px; border-radius: 8px; margin-top: 15px; }
         
+        /* TABLES */
         table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 15px; margin-bottom: 20px; }
         th, td { border: 1px solid #ddd; padding: 12px; }
         th { background-color: #2980b9; color: white; }
         
+        /* BADGES & TAGS */
         .grade-badge { display: inline-block; padding: 8px 15px; margin: 5px; background: #34495e; color: white; border-radius: 20px; font-weight: bold; }
         .status-tag { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; }
         .tag-yes { background-color: #27ae60; }
         .tag-no { background-color: #e74c3c; }
+
+        /* DIAGNOSTIC LOG BOX */
+        .log-box { text-align: left; background: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 5px; margin-top: 15px; font-size: 13px; color: #856404; font-family: monospace; max-height: 200px; overflow-y: auto; }
     </style>
 </head>
 <body>
 
-    <!-- SIDEBAR WITH 6 MENU ITEMS -->
+    <!-- SIDEBAR NAVIGATION -->
     <div class="sidebar">
         <h2>Admin Portal</h2>
         <ul>
-            <li class="active" onclick="switchTab(event, 'upload')">1.  Upload Marksheets</li>
-            <li onclick="switchTab(event, 'student-search')">2.  Student Profile</li>
-            <li onclick="switchTab(event, 'doc-issuance')">3.  Document Issuance</li>
-            <li onclick="switchTab(event, 'career-status')">4.  Career & Placements</li>
-            <li onclick="switchTab(event, 'stats'); fetchStats();">5.  Result Statistics</li>
-            <li onclick="switchTab(event, 'directory'); fetchDirectory();">6.  Student Directory</li>
+            <li class="active" onclick="switchTab(event, 'upload')">1. 📤 Upload Marksheets</li>
+            <li onclick="switchTab(event, 'student-search')">2. 🔍 Student Profile</li>
+            <li onclick="switchTab(event, 'doc-issuance')">3. 📜 Document Issuance</li>
+            <li onclick="switchTab(event, 'career-status')">4. 💼 Career & Placements</li>
+            <li onclick="switchTab(event, 'stats'); fetchStats();">5. 📊 Result Statistics</li>
+            <li onclick="switchTab(event, 'directory'); fetchDirectory();">6. 📁 Student Directory</li>
         </ul>
     </div>
 
     <div class="main-content">
-        <!-- 1. UPLOAD SECTION -->
+        
+        <!-- 1. UPLOAD MARKSHEETS SECTION -->
         <div id="upload" class="section active">
             <h2>Cloud OCR: Extract Marksheets</h2>
-            <p>Upload student marksheets PDF to automatically extract academic data into the database.</p>
+            <p>Upload student marksheets PDF (digital or scanned) to extract academic records into the database.</p>
+            
             <input type="file" id="pdfFile" accept="application/pdf">
             <button id="uploadBtn" onclick="uploadPDF()">Upload & Process PDF</button>
+            
             <div id="upload-msg" style="margin-top: 15px; font-weight: bold;"></div>
         </div>
 
-        <!-- 2. STUDENT SEARCH & PROFILE -->
+        <!-- 2. STUDENT PROFILE & SEARCH -->
         <div id="student-search" class="section">
             <h2>Search Student Academic Profile</h2>
-            <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 123-1234-1234-23)">
-            <button onclick="fetchStudentProfile()">Search Student</button>
+            <p>Enter student registration number to view complete semester SGPA, CGPA, and course details.</p>
+            
+            <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 424-1211-0240-19)">
+            <button onclick="fetchStudentProfile()">Search Student Database</button>
             
             <div id="profile-area" style="display: none; margin-top: 20px;">
                 <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #2980b9; padding-bottom: 5px;">
@@ -85,7 +100,12 @@
                 <h3>Semester Performance Breakdown</h3>
                 <table>
                     <thead>
-                        <tr><th>Semester</th><th>Exam Year</th><th>Total Marks</th><th>SGPA</th></tr>
+                        <tr>
+                            <th>Semester</th>
+                            <th>Exam Year</th>
+                            <th>Total Marks</th>
+                            <th>SGPA</th>
+                        </tr>
                     </thead>
                     <tbody id="sem-table-body"></tbody>
                 </table>
@@ -95,7 +115,8 @@
         <!-- 3. DOCUMENT ISSUANCE -->
         <div id="doc-issuance" class="section">
             <h2>Document Issuance Tracker</h2>
-            <p>Issue marksheets and degree certificates to students.</p>
+            <p>Manage and track marksheets and degree certificates issued to students.</p>
+            
             <input type="text" id="docRegNo" placeholder="Enter Registration Number">
             <button onclick="loadDocStatus()">Load Student</button>
 
@@ -120,7 +141,8 @@
         <!-- 4. CAREER & PLACEMENTS -->
         <div id="career-status" class="section">
             <h2>Career & Post-Graduation Profile</h2>
-            <p>Track job placements, higher study enrolments, and uploaded proof documents.</p>
+            <p>Track employment, higher study enrolments, and uploaded proof documents.</p>
+            
             <input type="text" id="careerRegNo" placeholder="Enter Registration Number">
             <button onclick="loadCareerStatus()">Load Student</button>
 
@@ -144,7 +166,7 @@
 
                 <label><b>Upload Proof (Offer Letter / ID Card / Admission Slip):</b></label>
                 <input type="file" id="proofFile" accept="image/*,application/pdf">
-                <div id="current-proof-link" style="margin: 5px 0;"></div>
+                <div id="current-proof-link" style="margin: 8px 0;"></div>
 
                 <button onclick="saveCareerStatus()" style="background-color: #1abc9c; margin-top: 10px;">Save Career Details</button>
                 <div id="career-msg" style="margin-top: 10px; font-weight: bold;"></div>
@@ -154,23 +176,25 @@
         <!-- 5. RESULT STATISTICS -->
         <div id="stats" class="section">
             <h2>Overall Result Statistics</h2>
-            <p>Count of students per Grade categorized by Course.</p>
+            <p>Count of students per Grade categorized by Course degree.</p>
             <div id="stats-container"></div>
         </div>
 
         <!-- 6. STUDENT MASTER DIRECTORY -->
         <div id="directory" class="section">
             <h2>Student Master Directory</h2>
-            <p>Complete record of extracted students in database.</p>
+            <p>Complete record of extracted students stored in database.</p>
             <div id="directory-container">
                 <i>Loading directory...</i>
             </div>
         </div>
+
     </div>
 
     <script>
         let currentLoadedRegNo = "";
 
+        // Tab Switcher
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
             document.querySelectorAll('.sidebar ul li').forEach(li => li.classList.remove('active'));
@@ -178,15 +202,16 @@
             evt.currentTarget.classList.add('active');
         }
 
-        // 1. Upload
+        // 1. Upload PDF with Diagnostic Logger
         async function uploadPDF() {
             const file = document.getElementById("pdfFile").files[0];
             if (!file) return alert("Select a PDF first.");
             
             const btn = document.getElementById("uploadBtn");
             const msg = document.getElementById("upload-msg");
-            btn.innerText = "Processing... Please wait";
-            msg.innerText = "Extracting full marksheet details... (This may take a few minutes)";
+            btn.disabled = true;
+            btn.innerText = "Processing in Cloud... Please wait";
+            msg.innerText = "Extracting full marksheet details... (This may take a few seconds)";
             msg.style.color = "#d35400";
             
             const formData = new FormData();
@@ -195,26 +220,35 @@
             try {
                 const res = await fetch(`/api/admin/upload-marksheet`, { method: "POST", body: formData });
                 const data = await res.json();
+                
                 msg.innerText = data.message;
-                msg.style.color = "green";
+                msg.style.color = data.message.includes("0 student") ? "#d35400" : "green";
+
+                // Render Diagnostic Log Box if logs are provided
+                if (data.debug_logs && data.debug_logs.length > 0) {
+                    msg.innerHTML += `<div class="log-box"><b>Diagnostic Logs:</b><br>${data.debug_logs.join('<br>')}</div>`;
+                }
             } catch (err) {
-                msg.innerText = "Error extracting PDF.";
+                msg.innerText = "Error extracting PDF: " + err.message;
                 msg.style.color = "red";
             } finally {
+                btn.disabled = false;
                 btn.innerText = "Upload & Process PDF";
             }
         }
 
-        // Helper to fetch student API
+        // Helper: Fetch Student Data
         async function getStudentData(regNo) {
             const res = await fetch(`/api/student/${regNo}`);
-            if (!res.ok) throw new Error("Student record not found.");
+            if (!res.ok) throw new Error("Student record not found in database.");
             return await res.json();
         }
 
-        // 2. Profile Search
+        // 2. Fetch Student Profile
         async function fetchStudentProfile() {
             const regNo = document.getElementById("regNoSearch").value.trim();
+            if (!regNo) return alert("Enter a Registration Number first.");
+
             try {
                 const data = await getStudentData(regNo);
                 document.getElementById("s-name").innerText = data.student.name;
@@ -241,12 +275,15 @@
         // 3. Document Issuance
         async function loadDocStatus() {
             const regNo = document.getElementById("docRegNo").value.trim();
+            if (!regNo) return alert("Enter a Registration Number.");
+
             try {
                 const data = await getStudentData(regNo);
                 currentLoadedRegNo = data.student.reg_no;
                 document.getElementById("doc-student-title").innerText = `${data.student.name} (${data.student.reg_no})`;
                 document.getElementById("marksheetCb").checked = data.student.marksheet_received;
                 document.getElementById("certCb").checked = data.student.certificate_received;
+                document.getElementById("doc-msg").innerText = "";
                 document.getElementById("doc-form-area").style.display = "block";
             } catch (err) { alert(err.message); }
         }
@@ -254,6 +291,7 @@
         async function saveDocStatus() {
             if (!currentLoadedRegNo) return;
             const data = await getStudentData(currentLoadedRegNo);
+            
             const formData = new FormData();
             formData.append("course", data.student.course);
             formData.append("marksheet_received", document.getElementById("marksheetCb").checked);
@@ -262,12 +300,14 @@
             formData.append("details", data.student.details);
 
             const res = await fetch(`/api/admin/update-status/${currentLoadedRegNo}`, { method: "POST", body: formData });
-            if(res.ok) document.getElementById("doc-msg").innerText = "✅ Issuance status updated!";
+            if(res.ok) document.getElementById("doc-msg").innerText = "✅ Issuance status updated successfully!";
         }
 
         // 4. Career Status
         async function loadCareerStatus() {
             const regNo = document.getElementById("careerRegNo").value.trim();
+            if (!regNo) return alert("Enter a Registration Number.");
+
             try {
                 const data = await getStudentData(regNo);
                 currentLoadedRegNo = data.student.reg_no;
@@ -281,6 +321,7 @@
                 } else {
                     document.getElementById("current-proof-link").innerText = "No proof file uploaded.";
                 }
+                document.getElementById("career-msg").innerText = "";
                 document.getElementById("career-form-area").style.display = "block";
             } catch (err) { alert(err.message); }
         }
@@ -301,7 +342,7 @@
 
             const res = await fetch(`/api/admin/update-status/${currentLoadedRegNo}`, { method: "POST", body: formData });
             if(res.ok) {
-                document.getElementById("career-msg").innerText = "✅ Career profile updated!";
+                document.getElementById("career-msg").innerText = "✅ Career details updated successfully!";
                 loadCareerStatus();
             }
         }
@@ -333,7 +374,7 @@
             }
         }
 
-        // 6. Master Directory
+        // 6. Master Directory Table
         async function fetchDirectory() {
             const container = document.getElementById("directory-container");
             container.innerHTML = "<i>Loading student directory...</i>";
