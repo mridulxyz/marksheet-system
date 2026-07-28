@@ -83,6 +83,93 @@ class SemesterRecord(Base):
 Base.metadata.create_all(bind=engine)
 os.makedirs("uploads", exist_ok=True)
 
+# --- HELPER PARSING FUNCTIONS ---
+
+def extract_reg_no(text: str):
+    if not text: return None
+    t_clean = re.sub(r'[—–_~]', '-', text)
+
+    # Search for Registration No label
+    match = re.search(r'(?:Registration|Regn|Reg)[\s\.\:\-]*No[\.\:\s]*([0-9OoQIl\-\s\.\/]+)', t_clean, re.IGNORECASE)
+    if match:
+        raw_val = match.group(1).replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
+        digits = re.sub(r'\D', '', raw_val)
+        if len(digits) >= 13:
+            d = digits[:13]
+            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}"
+
+    # Search for CU 13-digit pattern: XXX-XXXX-XXXX-XX
+    t_fixed = t_clean.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
+    cu_pattern = re.search(r'\b(\d{3})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{2})\b', t_fixed)
+    if cu_pattern:
+        g = cu_pattern.groups()
+        return f"{g[0]}-{g[1]}-{g[2]}-{g[3]}"
+
+    return None
+
+def extract_roll_no(text: str):
+    if not text: return "Unknown"
+    t_clean = re.sub(r'[—–_~]', '-', text)
+
+    match = re.search(r'Roll[\s\&\.]*No[\.\:\s]*([0-9OoQIl\-\s\.\/]+)', t_clean, re.IGNORECASE)
+    if match:
+        raw_val = match.group(1).replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
+        digits = re.sub(r'\D', '', raw_val)
+        if len(digits) >= 12:
+            d = digits[:12]
+            return f"{d[:6]}-{d[6:8]}-{d[8:]}"
+
+    t_fixed = t_clean.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
+    cu_pattern = re.search(r'\b(\d{6})[\-\s\.\/]*(\d{2})[\-\s\.\/]*(\d{4})\b', t_fixed)
+    if cu_pattern:
+        g = cu_pattern.groups()
+        return f"{g[0]}-{g[1]}-{g[2]}"
+
+    return "Unknown"
+
+def extract_name(text: str):
+    if not text: return "Unknown Student"
+    match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text, re.IGNORECASE)
+    if match:
+        raw_name = re.sub(r'[^A-Za-z\s\.]', '', match.group(1)).strip()
+        if len(raw_name) > 2:
+            return raw_name
+    return "Unknown Student"
+
+def extract_course(text: str):
+    if not text: return "B.A. (Honours)"
+    match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text, re.IGNORECASE)
+    if match:
+        return match.group(0).strip()
+    return "B.A. (Honours)"
+
+def run_ocr(page):
+    # Strategy 1: Fast Grayscale
+    try:
+        raw_img = page.to_image(resolution=110).original
+        gray = raw_img.convert('L')
+        text = pytesseract.image_to_string(gray, lang="eng")
+        del raw_img, gray
+        gc.collect()
+        if len(text.strip()) > 20:
+            return text
+    except Exception as e:
+        print(f"OCR Strategy 1 error: {e}")
+
+    # Strategy 2: Binarized (Thresholding)
+    try:
+        raw_img = page.to_image(resolution=100).original
+        gray = raw_img.convert('L')
+        bw = gray.point(lambda p: 255 if p > 160 else 0)
+        text = pytesseract.image_to_string(bw, lang="eng")
+        del raw_img, gray, bw
+        gc.collect()
+        return text
+    except Exception as e:
+        print(f"OCR Strategy 2 error: {e}")
+
+    return ""
+
 # --- FASTAPI APP SETUP ---
 app = FastAPI(title="University Admin Portal")
 
@@ -102,12 +189,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-# --- HELPER: Binarize image to erase background watermark ---
-def clean_image_for_ocr(pil_img):
-    gray = pil_img.convert('L')
-    bw = gray.point(lambda p: 255 if p > 160 else 0) # Erase gray watermark background
-    return bw
 
 # --- FRONTEND ROUTE ---
 @app.get("/")
@@ -131,85 +212,37 @@ async def upload_marksheet(
         with pdfplumber.open(temp_pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
                 try:
-                    # 1. Native Digital Text Extraction
-                    text = page.extract_text() or ""
+                    print(f"--- Processing Page {page_num + 1} ---")
                     
-                    # 2. Scanned PDF Fallback: Fast binarized OCR if text is less than 30 chars
-                    if len(text.strip()) < 30:
-                        print(f"Page {page_num+1}: Native text empty. Triggering fast OCR...")
-                        try:
-                            raw_img = page.to_image(resolution=100).original
-                            cleaned_img = clean_image_for_ocr(raw_img)
-                            text = pytesseract.image_to_string(cleaned_img, lang="eng", config="--psm 6")
-                            del raw_img, cleaned_img
-                            gc.collect()
-                        except Exception as ocr_err:
-                            print(f"OCR Error on page {page_num+1}: {ocr_err}")
-                            continue
+                    # 1. Try Native Digital Text
+                    text = page.extract_text() or ""
+                    reg_no = extract_reg_no(text)
 
-                    text_clean = re.sub(r'[—–_~]', '-', text)
-
-                    # 3. Registration Number Extraction (With digit sanitization)
-                    reg_no = None
-                    reg_match = re.search(r'(?:Registration|Regn|Reg)[\s\.\:\-]*No[\.\:\s]*([0-9OoQIl\-\s\.\/]+)', text_clean, re.IGNORECASE)
-                    if reg_match:
-                        raw_val = reg_match.group(1).replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
-                        digits = re.sub(r'\D', '', raw_val)
-                        if len(digits) >= 13:
-                            digits = digits[:13]
-                            reg_no = f"{digits[:3]}-{digits[3:7]}-{digits[7:11]}-{digits[11:]}"
-
-                    # Fallback pattern search for CU Registration: XXX-XXXX-XXXX-XX
+                    # 2. Trigger OCR if Registration No was NOT found in native text
                     if not reg_no:
-                        text_digit_fixed = text_clean.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
-                        cu_pattern = re.search(r'\b(\d{3})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{2})\b', text_digit_fixed)
-                        if cu_pattern:
-                            g = cu_pattern.groups()
-                            reg_no = f"{g[0]}-{g[1]}-{g[2]}-{g[3]}"
+                        print(f"Page {page_num + 1}: Registration No not in native text. Triggering OCR...")
+                        ocr_text = run_ocr(page)
+                        if ocr_text:
+                            text = ocr_text
+                            reg_no = extract_reg_no(text)
 
                     if not reg_no:
-                        print(f"Page {page_num+1}: Registration number not found.")
+                        print(f"Page {page_num + 1}: Reg No could not be identified after OCR. Skipping.")
                         continue 
 
-                    # 4. Roll Number Extraction
-                    roll_no = "Unknown"
-                    roll_match = re.search(r'Roll[\s\&\.]*No[\.\:\s]*([0-9OoQIl\-\s\.\/]+)', text_clean, re.IGNORECASE)
-                    if roll_match:
-                        raw_val = roll_match.group(1).replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
-                        digits = re.sub(r'\D', '', raw_val)
-                        if len(digits) >= 12:
-                            digits = digits[:12]
-                            roll_no = f"{digits[:6]}-{digits[6:8]}-{digits[8:]}"
-
-                    if roll_no == "Unknown":
-                        text_digit_fixed = text_clean.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1')
-                        cu_roll_p = re.search(r'\b(\d{6})[\-\s\.\/]*(\d{2})[\-\s\.\/]*(\d{4})\b', text_digit_fixed)
-                        if cu_roll_p:
-                            g = cu_roll_p.groups()
-                            roll_no = f"{g[0]}-{g[1]}-{g[2]}"
-
-                    # 5. Student Name Extraction
-                    name = "Unknown Student"
-                    name_match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text_clean, re.IGNORECASE)
-                    if name_match:
-                        raw_name = re.sub(r'[^A-Za-z\s\.]', '', name_match.group(1)).strip()
-                        if len(raw_name) > 2:
-                            name = raw_name
-
-                    # 6. Course Title
-                    course = "B.A. (Honours)"
-                    course_match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text_clean, re.IGNORECASE)
-                    if course_match:
-                        course = course_match.group(0).strip()
+                    # 3. Extract Fields
+                    roll_no = extract_roll_no(text)
+                    name = extract_name(text)
+                    course = extract_course(text)
 
                     try:
                         admission_year = "20" + reg_no.split("-")[-1]
                     except:
                         admission_year = "Unknown"
 
-                    # 7. Extract Semester Performance Table
+                    # 4. Extract Semester Performance Table
                     sems_data = []
-                    for line in text_clean.splitlines():
+                    for line in text.splitlines():
                         line_str = line.strip()
                         sem_m = re.search(r'^(I|II|III|IV|V|VI)\b\s*(\d{4})?\s*(\d+)?\s*(\d+)?\s*(\d+)?\s*([\d\.]+|N\.?A\.?)?', line_str)
                         if sem_m:
@@ -219,23 +252,23 @@ async def upload_marksheet(
                             s_sgpa = sem_m.group(6) or ""
                             sems_data.append((s_name, s_year, s_marks, s_sgpa))
 
-                    # 8. Extract Final CGPA & Grade
+                    # 5. Extract Final CGPA & Grade
                     overall_cgpa = "N.A."
                     overall_grade = "Fail / Semester Not Cleared"
 
-                    cgpa_match = re.search(r'VI\b.*?\b([\d\.]+)\s+\d+\s+([\d\.]+)\s+([A-Z\+\-]+)', text_clean)
+                    cgpa_match = re.search(r'VI\b.*?\b([\d\.]+)\s+\d+\s+([\d\.]+)\s+([A-Z\+\-]+)', text)
                     if cgpa_match:
                         overall_cgpa = cgpa_match.group(2)
                         overall_grade = cgpa_match.group(3)
                     else:
-                        cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text_clean, re.IGNORECASE)
+                        cgpa_sub = re.search(r'CGPA\s*[\:\s]*([\d\.]+)', text, re.IGNORECASE)
                         if cgpa_sub: overall_cgpa = cgpa_sub.group(1)
-                        grade_sub = re.search(r'Grade\s*[\:\s]*([A-Z\+\-]+)', text_clean, re.IGNORECASE)
+                        grade_sub = re.search(r'Grade\s*[\:\s]*([A-Z\+\-]+)', text, re.IGNORECASE)
                         if grade_sub: overall_grade = grade_sub.group(1)
 
-                    print(f"Page {page_num+1} Extracted: Reg={reg_no}, Name={name}, Roll={roll_no}")
+                    print(f"Page {page_num + 1} SUCCESS: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}")
 
-                    # 9. Database Upsert
+                    # 6. Database Upsert
                     existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
                     if existing_student:
                         existing_student.name = name if name != "Unknown Student" else existing_student.name
@@ -269,7 +302,7 @@ async def upload_marksheet(
                             
                     extracted_count += 1
                 except Exception as page_err:
-                    print(f"Error on page {page_num+1}: {page_err}")
+                    print(f"Error on page {page_num + 1}: {page_err}")
                     continue
 
         db.commit()
