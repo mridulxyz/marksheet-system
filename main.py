@@ -4,21 +4,23 @@ import shutil
 import secrets
 import json
 import base64
-import fitz  # PyMuPDF
 from PIL import Image
 
 # Safe Imports
 try:
-    import openai
+    import fitz  # PyMuPDF
 except ImportError:
-    openai = None
+    fitz = None
 
 try:
     import pdfplumber
 except ImportError:
     pdfplumber = None
 
-import pytesseract
+try:
+    import openai
+except ImportError:
+    openai = None
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
