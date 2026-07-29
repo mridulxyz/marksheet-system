@@ -4,18 +4,21 @@ import shutil
 import secrets
 import json
 import base64
+import fitz  # PyMuPDF
 from PIL import Image
 
-# Safe Imports to prevent Exit Status 1 on startup
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    fitz = None
-
+# Safe Imports
 try:
     import openai
 except ImportError:
     openai = None
+
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
+
+import pytesseract
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -152,10 +155,35 @@ def parse_marksheet_with_openai_vision(page):
     result_json = response.choices[0].message.content
     return json.loads(result_json)
 
-# --- FALLBACK TEXT PARSER ---
+# --- LOCAL FALLBACK PARSER (IF OPENAI API KEY IS MISSING) ---
+
+def extract_text_rows_from_rect(page, rect_box):
+    try:
+        words = page.get_text("words", clip=rect_box)
+        if not words: return ""
+        sorted_words = sorted(words, key=lambda w: (round(w[1] / 5.0), w[0]))
+
+        lines = []
+        current_line = []
+        last_y = None
+
+        for w in sorted_words:
+            x0, y0, x1, y1, word = w[0], w[1], w[2], w[3], w[4]
+            if last_y is None or abs(y0 - last_y) <= 5:
+                current_line.append(word)
+                last_y = y0
+            else:
+                lines.append(" ".join(current_line))
+                current_line = [word]
+                last_y = y0
+
+        if current_line: lines.append(" ".join(current_line))
+        return "\n".join(lines)
+    except Exception:
+        return page.get_text("text", clip=rect_box) or ""
 
 def extract_reg_no_bulletproof(text: str):
-    if not text: return None
+    if not text: return None, "Text empty"
     t = re.sub(r'[—–_~]', '-', text)
     t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
 
@@ -164,14 +192,14 @@ def extract_reg_no_bulletproof(text: str):
         digits = re.sub(r'\D', '', match.group(1))
         if len(digits) >= 13:
             d = digits[:13]
-            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}"
+            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "Reg Label"
 
     all_digits_clusters = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
     if all_digits_clusters:
         d = all_digits_clusters[0]
-        return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}"
+        return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "13-Digit Cluster"
 
-    return None
+    return None, "No 13-digit pattern found"
 
 def extract_roll_no_bulletproof(text: str):
     if not text: return "Unknown"
@@ -184,6 +212,72 @@ def extract_roll_no_bulletproof(text: str):
         return f"{d[:6]}-{d[6:8]}-{d[8:]}"
 
     return "Unknown"
+
+def extract_name_bulletproof(text: str):
+    if not text: return "Unknown Student"
+    match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text, re.IGNORECASE)
+    if match:
+        raw_name = re.sub(r'[^A-Za-z\s\.]', '', match.group(1)).strip()
+        if len(raw_name) > 2: return raw_name
+    return "Unknown Student"
+
+def extract_course(text: str):
+    if not text: return "B.A. (Honours) Examination"
+    match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text, re.IGNORECASE)
+    if match:
+        raw_course = match.group(0).strip()
+        cleaned_course = re.sub(r'Semester\s*[\-\–\_]?\s*(VI|V|IV|III|II|I|\d+)', '', raw_course, flags=re.IGNORECASE)
+        return re.sub(r'\s+', ' ', cleaned_course).strip()
+    return "B.A. (Honours) Examination"
+
+def parse_summary_table_local(table_text: str):
+    sems = []
+    cgpa = "N.A."
+    grade = "Fail / Semester Not Cleared"
+    if not table_text: return sems, cgpa, grade
+
+    text_clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', table_text)
+    is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_clean, re.IGNORECASE))
+
+    lines = [l.strip() for l in text_clean.splitlines() if l.strip()]
+    sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
+
+    for line in lines:
+        for sem in sem_keys:
+            if re.search(rf'\b{sem}\b', line):
+                years = re.findall(r'\b(20\d\d)\b', line)
+                integers = [i for i in re.findall(r'\b(\d{2,3})\b', line) if i not in years]
+                floats = re.findall(r'\b([1-9]\.\d{2,3})\b', line)
+
+                if years and integers and floats:
+                    s_yr = years[0]
+                    s_fm = integers[0] if len(integers) >= 1 else "400"
+                    s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
+                    s_cred = integers[2] if len(integers) >= 3 else "20"
+                    s_sgpa = floats[0]
+
+                    if not any(item["semester"] == sem for item in sems):
+                        sems.append({
+                            "semester": sem,
+                            "year": s_yr,
+                            "full_marks": s_fm,
+                            "marks": s_marks,
+                            "credit": s_cred,
+                            "sgpa": s_sgpa
+                        })
+
+    sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
+    sems = sorted(sems, key=lambda x: sem_order.get(x["semester"], 99))
+
+    if not is_not_cleared:
+        all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
+        valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
+        if valid_gpas: cgpa = valid_gpas[-1]
+
+        grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
+        if grade_m: grade = grade_m.group(1)
+
+    return sems, cgpa, grade
 
 # --- FASTAPI APP SETUP ---
 app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
@@ -200,10 +294,8 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 def get_db():
     db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    try: yield db
+    finally: db.close()
 
 # --- SAFE STARTUP DB CREATION & MIGRATION ---
 @app.on_event("startup")
@@ -264,7 +356,7 @@ async def upload_marksheet(
             try:
                 page = doc[page_num]
                 
-                # If OpenAI Vision is configured, use AI Vision Extraction
+                # --- STRATEGY 1: OPENAI VISION (IF API KEY IS SET) ---
                 if ai_client:
                     data = parse_marksheet_with_openai_vision(page)
 
@@ -296,53 +388,70 @@ async def upload_marksheet(
                             "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
                         })
 
-                    # Database Upsert
-                    existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
-                    if existing_student:
-                        existing_student.name = name
-                        existing_student.roll_no = roll_no
-                        existing_student.course = course
-                        existing_student.overall_cgpa = overall_cgpa
-                        existing_student.overall_grade = overall_grade
-                        
-                        db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-                        for sem in normalized_semesters:
-                            db.add(SemesterRecord(
-                                registration_no=reg_no, 
-                                semester=sem["semester"], 
-                                year=sem["year"], 
-                                full_marks=sem["full_marks"],
-                                marks_obtained=sem["marks"], 
-                                credit=sem["credit"],
-                                sgpa=sem["sgpa"]
-                            ))
-                    else:
-                        admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
-                        student = Student(
-                            registration_no=reg_no, 
-                            roll_no=roll_no, 
-                            name=name, 
-                            admission_year=admission_year, 
-                            course=course, 
-                            overall_cgpa=overall_cgpa, 
-                            overall_grade=overall_grade
-                        )
-                        db.add(student)
-                        for sem in normalized_semesters:
-                            db.add(SemesterRecord(
-                                registration_no=reg_no, 
-                                semester=sem["semester"], 
-                                year=sem["year"], 
-                                full_marks=sem["full_marks"],
-                                marks_obtained=sem["marks"], 
-                                credit=sem["credit"],
-                                sgpa=sem["sgpa"]
-                            ))
-                            
-                    extracted_count += 1
-                    debug_logs.append(f"Page {page_num+1} AI Success: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(normalized_semesters)}")
+                # --- STRATEGY 2: LOCAL PYMUPDF EXTRACTION (FALLBACK) ---
                 else:
-                    debug_logs.append(f"Page {page_num+1}: OPENAI_API_KEY environment variable is not set on Render.")
+                    full_text = page.get_text("text") or ""
+                    reg_no, match_method = extract_reg_no_bulletproof(full_text)
+                    if not reg_no:
+                        debug_logs.append(f"Page {page_num+1}: OPENAI_API_KEY environment variable is not set on Render. Local fallback failed to detect Registration No.")
+                        continue
+
+                    roll_no = extract_roll_no_bulletproof(full_text)
+                    name = extract_name_bulletproof(full_text)
+                    course = extract_course(full_text)
+
+                    rect = page.rect
+                    table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
+                    table_text = extract_text_rows_from_rect(page, table_rect)
+
+                    normalized_semesters, overall_cgpa, overall_grade = parse_summary_table_local(table_text)
+
+                # Database Upsert
+                existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
+                if existing_student:
+                    existing_student.name = name
+                    existing_student.roll_no = roll_no
+                    existing_student.course = course
+                    existing_student.overall_cgpa = overall_cgpa
+                    existing_student.overall_grade = overall_grade
+                    
+                    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+                    for sem in normalized_semesters:
+                        db.add(SemesterRecord(
+                            registration_no=reg_no, 
+                            semester=sem["semester"], 
+                            year=sem["year"], 
+                            full_marks=sem["full_marks"],
+                            marks_obtained=sem["marks"], 
+                            credit=sem["credit"],
+                            sgpa=sem["sgpa"]
+                        ))
+                else:
+                    admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
+                    student = Student(
+                        registration_no=reg_no, 
+                        roll_no=roll_no, 
+                        name=name, 
+                        admission_year=admission_year, 
+                        course=course, 
+                        overall_cgpa=overall_cgpa, 
+                        overall_grade=overall_grade
+                    )
+                    db.add(student)
+                    for sem in normalized_semesters:
+                        db.add(SemesterRecord(
+                            registration_no=reg_no, 
+                            semester=sem["semester"], 
+                            year=sem["year"], 
+                            full_marks=sem["full_marks"],
+                            marks_obtained=sem["marks"], 
+                            credit=sem["credit"],
+                            sgpa=sem["sgpa"]
+                        ))
+                        
+                extracted_count += 1
+                method_label = "OpenAI AI Vision" if ai_client else "Local PyMuPDF"
+                debug_logs.append(f"Page {page_num+1} Success ({method_label}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(normalized_semesters)}")
             except Exception as page_err:
                 db.rollback()
                 debug_logs.append(f"Page {page_num+1} Exception: {page_err}")
@@ -370,7 +479,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
     
     sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
     
-    # Calculate Passout Year: Year of Semester VI
+    # Passout Year calculation: Year of Semester VI
     passout_year = "Unknown"
     for s in sems:
         if s.semester in ["VI", "6", "VI."] and s.year:
