@@ -2,22 +2,11 @@ import os
 import re
 import shutil
 import secrets
-import gc
+import json
+import base64
+import fitz  # PyMuPDF
+import openai
 from PIL import Image
-import numpy as np
-import cv2
-
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    fitz = None
-
-try:
-    import pdfplumber
-except ImportError:
-    pdfplumber = None
-
-import pytesseract
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,7 +33,11 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-# --- DATABASE SETUP (AUTO-RECONNECT SSL PING) ---
+# --- OPENAI CLIENT SETUP ---
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ai_client = openai.OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
+# --- DATABASE SETUP ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./calcutta_university.db")
 if DATABASE_URL.startswith("postgres://"): 
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -92,187 +85,63 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- OPENCV OTSU ADAPTIVE BINARIZATION ---
+# --- OPENAI GPT-4o-MINI VISION PARSER ---
 
-def opencv_erase_watermark_otsu(pil_img):
+def parse_marksheet_with_openai_vision(page):
+    pix = page.get_pixmap(dpi=130)
+    img_bytes = pix.tobytes("jpeg")
+    base64_image = base64.b64encode(img_bytes).decode('utf-8')
+
+    prompt = """
+    You are an expert transcript parser for Calcutta University Grade Sheets. Analyze the provided grade sheet image and return ONLY a valid JSON object in this exact schema:
+
+    {
+      "registration_no": "424-1211-0240-19",
+      "roll_no": "192424-11-0044",
+      "name": "SWAGATA PURKAIT",
+      "course": "B.A. (Honours) Examination (Under CBCS)",
+      "overall_cgpa": "6.819",
+      "overall_grade": "B+",
+      "semesters": [
+        {"semester": "I", "year": "2019", "full_marks": "400", "marks": "248", "credit": "20", "sgpa": "5.624"},
+        {"semester": "II", "year": "2020", "full_marks": "400", "marks": "310", "credit": "20", "sgpa": "7.705"},
+        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "330", "credit": "26", "sgpa": "6.899"},
+        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "372", "credit": "26", "sgpa": "7.367"},
+        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "263", "credit": "24", "sgpa": "6.527"},
+        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "270", "credit": "24", "sgpa": "6.686"}
+      ]
+    }
+
+    STRICT CRITICAL RULES:
+    1. OVERALL GRADE: Look ONLY at row 'VI' in the bottom summary table under column 'Letter Grade' (e.g. B+, A+, A, B, C+, C, D, O). Do NOT read status 'P' (Passed) or subject grades from top subject tables.
+    2. OVERALL CGPA: Look ONLY at row 'VI' in the bottom summary table under column 'CGPA' (e.g. 6.819).
+    3. SEMESTERS: You MUST extract ALL cleared semester rows (I, II, III, IV, V, VI) from the bottom summary table. Each item in 'semesters' MUST contain: 'semester' (I, II, III, IV, V, VI), 'year', 'full_marks', 'marks', 'credit', 'sgpa'.
+    4. IF SEMESTER NOT CLEARED: If 'Semester not cleared' is printed in Remarks, set 'overall_cgpa': 'N.A.' and 'overall_grade': 'Fail / Semester Not Cleared'.
+    5. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
     """
-    Applies Otsu's Adaptive Binarization to calculate optimal thresholding
-    for yellowed or warm-lit scanned marksheet papers automatically.
-    """
-    img_np = np.array(pil_img)
-    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return Image.fromarray(thresh)
 
-# --- HEADER PARSERS ---
-
-def extract_reg_no_bulletproof(text: str):
-    if not text: return None, "Text empty"
-    t = re.sub(r'[—–_~]', '-', text)
-    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
-
-    match = re.search(r'(?:Registration|Regn|Reg|Registra)[^\d]{0,15}([0-9\-\s\.\/]{13,22})', t_fixed, re.IGNORECASE)
-    if match:
-        digits = re.sub(r'\D', '', match.group(1))
-        if len(digits) >= 13:
-            d = digits[:13]
-            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "Reg Label"
-
-    pattern_match = re.search(r'\b(\d{3})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{4})[\-\s\.\/]*(\d{2})\b', t_fixed)
-    if pattern_match:
-        g = pattern_match.groups()
-        return f"{g[0]}-{g[1]}-{g[2]}-{g[3]}", "3-4-4-2 Pattern"
-
-    all_digits_clusters = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
-    if all_digits_clusters:
-        d = all_digits_clusters[0]
-        return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "13-Digit Cluster"
-
-    return None, f"No 13-digit pattern found (Text Len={len(text)})"
-
-def extract_roll_no_bulletproof(text: str):
-    if not text: return "Unknown"
-    t = re.sub(r'[—–_~]', '-', text)
-    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
-
-    match = re.search(r'Roll[^\d]{0,15}([0-9\-\s\.\/]{12,20})', t_fixed, re.IGNORECASE)
-    if match:
-        digits = re.sub(r'\D', '', match.group(1))
-        if len(digits) >= 12:
-            d = digits[:12]
-            return f"{d[:6]}-{d[6:8]}-{d[8:]}"
-
-    pattern_match = re.search(r'\b(\d{6})[\-\s\.\/]*(\d{2})[\-\s\.\/]*(\d{4})\b', t_fixed)
-    if pattern_match:
-        g = pattern_match.groups()
-        return f"{g[0]}-{g[1]}-{g[2]}"
-
-    all_digits_clusters = re.findall(r'\b\d{12}\b', re.sub(r'\D', ' ', t_fixed))
-    if all_digits_clusters:
-        d = all_digits_clusters[0]
-        return f"{d[:6]}-{d[6:8]}-{d[8:]}"
-
-    return "Unknown"
-
-def extract_name_bulletproof(text: str):
-    if not text: return "Unknown Student"
-    match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text, re.IGNORECASE)
-    if match:
-        raw_name = re.sub(r'[^A-Za-z\s\.]', '', match.group(1)).strip()
-        if len(raw_name) > 2:
-            return raw_name
-    return "Unknown Student"
-
-def extract_course(text: str):
-    if not text: return "B.A. (Honours) Examination"
-    match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text, re.IGNORECASE)
-    if match:
-        raw_course = match.group(0).strip()
-        # Clean out "Semester - VI" or "Semester-VI" or "Semester 6"
-        cleaned_course = re.sub(r'Semester\s*[\-\–\_]?\s*(VI|V|IV|III|II|I|\d+)', '', raw_course, flags=re.IGNORECASE)
-        cleaned_course = re.sub(r'\s+', ' ', cleaned_course).strip()
-        return cleaned_course
-    return "B.A. (Honours) Examination"
-
-# --- UNIVERSAL SEMESTER TABLE PARSER ---
-
-def extract_all_semesters(text: str):
-    sems_data = []
-    if not text: return sems_data
-
-    clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', text)
-    clean = clean.replace('O', '0').replace('o', '0').replace('I', '1').replace('l', '1')
-
-    # Matches Roman Numeral + Year + Full Marks + Marks Obtained + Credit + SGPA
-    sem_pattern = re.compile(
-        r'\b(I|II|III|IV|V|VI)\b[\s\n\r]+(\d{4})[\s\n\r]+(\d{3})[\s\n\r]+(\d{2,3})[\s\n\r]+(\d{2})[\s\n\r]+([0-9]\.\d{2,3})',
-        re.IGNORECASE
+    response = ai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}",
+                            "detail": "high"
+                        }
+                    }
+                ]
+            }
+        ]
     )
 
-    for m in sem_pattern.finditer(clean):
-        s_num, s_yr, s_fm, s_marks, s_cred, s_sgpa = m.groups()
-        s_num_upper = s_num.upper()
-        if not any(x["semester"] == s_num_upper for x in sems_data):
-            sems_data.append({
-                "semester": s_num_upper,
-                "year": s_yr,
-                "full_marks": s_fm,
-                "marks": s_marks,
-                "credit": s_cred,
-                "sgpa": s_sgpa
-            })
-
-    # Line-by-line fallback if multiline pattern missed rows
-    if len(sems_data) < 5:
-        sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
-        for line in clean.splitlines():
-            line_str = line.strip()
-            for sem in sem_keys:
-                if re.search(rf'\b{sem}\b', line_str):
-                    years = re.findall(r'\b(20\d\d)\b', line_str)
-                    floats = re.findall(r'\b([1-9]\.\d{2,3})\b', line_str)
-                    integers = [i for i in re.findall(r'\b(\d{2,3})\b', line_str) if i not in years]
-
-                    if years and floats:
-                        s_yr = years[0]
-                        s_sgpa = floats[0]
-                        s_fm = integers[0] if len(integers) >= 1 else "400"
-                        s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
-                        s_cred = integers[2] if len(integers) >= 3 else "20"
-
-                        if not any(x["semester"] == sem for x in sems_data):
-                            sems_data.append({
-                                "semester": sem,
-                                "year": s_yr,
-                                "full_marks": s_fm,
-                                "marks": s_marks,
-                                "credit": s_cred,
-                                "sgpa": s_sgpa
-                            })
-
-    # Sort semesters in order: I, II, III, IV, V, VI
-    sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
-    sems_data = sorted(sems_data, key=lambda x: sem_order.get(x["semester"], 99))
-
-    return sems_data
-
-def parse_ocr_summary_table(ocr_text: str):
-    sems_data = extract_all_semesters(ocr_text)
-    overall_cgpa = "N.A."
-    overall_grade = "Fail / Semester Not Cleared"
-
-    if not ocr_text:
-        return sems_data, overall_cgpa, overall_grade
-
-    clean_ocr = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', ocr_text)
-
-    # 1. Check Remarks
-    is_failed = bool(re.search(r'Semester\s*not\s*cleared|not\s*cleared', clean_ocr, re.IGNORECASE))
-    if is_failed:
-        overall_cgpa = "N.A."
-        overall_grade = "Fail / Semester Not Cleared"
-    else:
-        # On row VI: extract CGPA and Grade
-        vi_match = re.search(r'\bVI\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)\s+(\d+)\s+([\d\.]+)\s+([A-Z\+\-]+)', clean_ocr)
-        if vi_match:
-            overall_cgpa = vi_match.group(7) # 6.819
-            grade_val = vi_match.group(8) # B+
-            if grade_val.upper() in ["A+", "A", "B+", "B", "C+", "C", "D", "O"]:
-                overall_grade = grade_val
-        else:
-            all_gpas = re.findall(r'\b([1-9]\.\d{2,3})\b', clean_ocr)
-            if len(all_gpas) >= 7:
-                overall_cgpa = all_gpas[-1]  # Last float is CGPA (6.819)
-            elif len(all_gpas) >= 1:
-                cg_m = re.search(r'140\s+([\d\.]+)|CGPA[^\d]{0,15}([\d\.]+)', clean_ocr)
-                if cg_m:
-                    overall_cgpa = cg_m.group(1) or cg_m.group(2)
-
-            grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', clean_ocr)
-            if grade_m:
-                overall_grade = grade_m.group(1)
-
-    return sems_data, overall_cgpa, overall_grade
+    result_json = response.choices[0].message.content
+    return json.loads(result_json)
 
 # --- FASTAPI APP SETUP ---
 app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
@@ -341,6 +210,9 @@ async def upload_marksheet(
     db: Session = Depends(get_db), 
     user: str = Depends(authenticate_admin)
 ):
+    if not ai_client:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is missing on Render.")
+
     temp_pdf_path = f"temp_{file.filename}"
     with open(temp_pdf_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -349,76 +221,56 @@ async def upload_marksheet(
     debug_logs = []
     
     try:
-        if not fitz:
-            raise HTTPException(status_code=500, detail="PyMuPDF library is not installed.")
-
         doc = fitz.open(temp_pdf_path)
         
         for page_num in range(len(doc)):
             try:
                 page = doc[page_num]
-                rect = page.rect
                 
-                # 1. Native Header Text
-                full_text = page.get_text("text") or ""
-                reg_no, match_method = extract_reg_no_bulletproof(full_text)
+                # Parse page using OpenAI Vision
+                data = parse_marksheet_with_openai_vision(page)
 
-                if not reg_no:
-                    try:
-                        pix_full = page.get_pixmap(dpi=110)
-                        img_full = Image.frombytes("RGB", [pix_full.width, pix_full.height], pix_full.samples)
-                        gray = img_full.convert('L')
-                        ocr_text = pytesseract.image_to_string(gray, lang="eng")
-                        if ocr_text:
-                            full_text = ocr_text
-                            reg_no, match_method = extract_reg_no_bulletproof(full_text)
-                    except Exception as ocr_err:
-                        debug_logs.append(f"Page {page_num+1} OCR Exception: {ocr_err}")
-
-                if not reg_no:
-                    debug_logs.append(f"Page {page_num+1} Failed: {match_method}")
+                reg_no = data.get("registration_no")
+                if not reg_no or reg_no == "null":
+                    debug_logs.append(f"Page {page_num+1}: Could not find Registration Number.")
                     continue
 
-                roll_no = extract_roll_no_bulletproof(full_text)
-                name = extract_name_bulletproof(full_text)
-                course = extract_course(full_text)
+                roll_no = data.get("roll_no", "Unknown")
+                name = data.get("name", "Unknown Student")
+                course = data.get("course", "B.A. (Honours) Examination (Under CBCS)")
+                overall_cgpa = data.get("overall_cgpa", "N.A.")
+                overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
+                
+                # Dynamic Key Normalization for Semester Data
+                raw_semesters = data.get("semesters", [])
+                normalized_semesters = []
+                for sem in raw_semesters:
+                    if not isinstance(sem, dict): continue
+                    
+                    raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
+                    raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
+                    if not raw_s: continue
 
-                # 2. CROP SUMMARY TABLE REGION & Otsu Binarize
-                table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
-                table_text = page.get_text("text", clip=table_rect) or ""
-
-                # Parse native text first
-                sems_data, overall_cgpa, overall_grade = parse_ocr_summary_table(table_text)
-
-                # If native text missed semester rows, apply OpenCV Otsu OCR
-                if len(sems_data) < 5:
-                    try:
-                        pix_table = page.get_pixmap(dpi=140, clip=table_rect)
-                        img_table = Image.frombytes("RGB", [pix_table.width, pix_table.height], pix_table.samples)
-                        
-                        clean_table_img = opencv_erase_watermark_otsu(img_table)
-                        table_ocr_text = pytesseract.image_to_string(clean_table_img, lang="eng", config="--psm 6")
-                        
-                        sems_ocr, cgpa_ocr, grade_ocr = parse_ocr_summary_table(table_ocr_text)
-                        if len(sems_ocr) > len(sems_data):
-                            sems_data = sems_ocr
-                        if cgpa_ocr != "N.A.":
-                            overall_cgpa = cgpa_ocr
-                            overall_grade = grade_ocr
-                    except Exception as table_ocr_err:
-                        debug_logs.append(f"Page {page_num+1} Table OCR Exception: {table_ocr_err}")
+                    normalized_semesters.append({
+                        "semester": raw_s,
+                        "year": str(sem.get("year") or sem.get("exam_year") or "").strip(),
+                        "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
+                        "marks": str(sem.get("marks") or sem.get("marks_obtained") or sem.get("obtained") or "-").strip(),
+                        "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
+                        "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
+                    })
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
                 if existing_student:
-                    existing_student.name = name if name != "Unknown Student" else existing_student.name
-                    existing_student.roll_no = roll_no if roll_no != "Unknown" else existing_student.roll_no
+                    existing_student.name = name
+                    existing_student.roll_no = roll_no
                     existing_student.course = course
                     existing_student.overall_cgpa = overall_cgpa
                     existing_student.overall_grade = overall_grade
                     
                     db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-                    for sem in sems_data:
+                    for sem in normalized_semesters:
                         db.add(SemesterRecord(
                             registration_no=reg_no, 
                             semester=sem["semester"], 
@@ -440,7 +292,7 @@ async def upload_marksheet(
                         overall_grade=overall_grade
                     )
                     db.add(student)
-                    for sem in sems_data:
+                    for sem in normalized_semesters:
                         db.add(SemesterRecord(
                             registration_no=reg_no, 
                             semester=sem["semester"], 
@@ -452,10 +304,10 @@ async def upload_marksheet(
                         ))
                         
                 extracted_count += 1
-                debug_logs.append(f"Page {page_num+1} Success ({match_method}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(sems_data)}")
+                debug_logs.append(f"Page {page_num+1} AI Success: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(normalized_semesters)}")
             except Exception as page_err:
                 db.rollback()
-                debug_logs.append(f"Page {page_num+1} DB Exception: {page_err}")
+                debug_logs.append(f"Page {page_num+1} Exception: {page_err}")
                 continue
 
         doc.close()
@@ -480,10 +332,10 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
     
     sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
     
-    # Calculate passout year: Exam year of Semester VI
+    # Calculate Passout Year: Year of Semester VI
     passout_year = "Unknown"
     for s in sems:
-        if s.semester == "VI" and s.year:
+        if s.semester in ["VI", "6", "VI."] and s.year:
             passout_year = s.year
 
     return {
