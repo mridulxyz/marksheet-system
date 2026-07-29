@@ -107,7 +107,7 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- 2-STEP CROPPED OPENAI GPT-4o-MINI VISION PARSER ---
+# --- OPENAI GPT-4o-MINI VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
     rect = page.rect
@@ -120,15 +120,15 @@ def parse_marksheet_with_openai_vision(page):
     prompt_header = """
     Extract header information from this Calcutta University Marksheet image and return ONLY a JSON object:
     {
-      "registration_no": "424-1211-0013-21",
-      "roll_no": "212424-11-0004",
-      "name": "BARSHA MALLICK",
+      "registration_no": "424-1215-0072-20",
+      "roll_no": "202424-11-0427",
+      "name": "TANISHA PARVIN",
       "course": "B.A. (Honours) Examination (Under CBCS)"
     }
-    Rules:
-    1. Registration No format: 3-4-4-2 (e.g. 424-1211-0013-21).
-    2. Roll No format: 6-2-4 (e.g. 212424-11-0004).
-    3. Omit 'Semester - VI' from course title.
+    STRICT RULES:
+    1. Registration No format: 3-4-4-2 (e.g. 424-1215-0072-20).
+    2. Roll No format: 6-2-4 (e.g. 202424-11-0427). Double-check digits with 100% precision (do not confuse 4 with 2).
+    3. Omit 'Semester - VI' or 'Semester - I' from course title.
     """
 
     # 2. Cropped Summary Table Image (Y: 46% to 88% height - CROPS OUT ALL TOP SUBJECT TABLES)
@@ -141,24 +141,21 @@ def parse_marksheet_with_openai_vision(page):
     Analyze ONLY this cropped Semester Summary Table from the bottom of a Calcutta University Grade Sheet and return ONLY a JSON object:
 
     {
-      "overall_cgpa": "7.378",
-      "overall_grade": "A",
-      "remarks": "Qualified with Honours",
+      "overall_cgpa": "N.A.",
+      "overall_grade": "Fail / Semester Not Cleared",
+      "remarks": "Semester not cleared",
       "semesters": [
-        {"semester": "I", "year": "2021", "full_marks": "400", "marks": "351", "credit": "20", "sgpa": "8.646"},
-        {"semester": "II", "year": "2022", "full_marks": "400", "marks": "285", "credit": "20", "sgpa": "6.978"},
-        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "349", "credit": "26", "sgpa": "7.166"},
-        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "365", "credit": "26", "sgpa": "7.449"},
-        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "274", "credit": "24", "sgpa": "6.815"},
-        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "297", "credit": "24", "sgpa": "7.373"}
+        {"semester": "I", "year": "2020", "full_marks": "400", "marks": "336", "credit": "20", "sgpa": "8.068"},
+        {"semester": "II", "year": "2021", "full_marks": "400", "marks": "335", "credit": "20", "sgpa": "8.314"},
+        {"semester": "III", "year": "2021", "full_marks": "500", "marks": "379", "credit": "26", "sgpa": "7.540"}
       ]
     }
 
     CRITICAL RULES:
-    1. Extract EVERY semester row in this summary table (I, II, III, IV, V, VI) with its exact Year, Full Marks, Marks Obtained, Semester Credit, and SGPA.
-    2. Read overall_cgpa (7.378) and overall_grade (A) from row VI.
-    3. Read remarks from the Remarks line (e.g. 'Qualified with Honours' or 'Semester not cleared').
-    4. If 'Semester not cleared' in Remarks, set overall_cgpa to 'N.A.' and overall_grade to 'Fail / Semester Not Cleared'.
+    1. ONLY PRESENT SEMESTERS: Extract ONLY the semester rows that contain data in the table. Do NOT create dummy entries or 'N.A.' entries for semesters that are blank/empty in the table.
+    2. For each present row, read the exact Year, Full Marks, Marks Obtained, Semester Credit, and SGPA.
+    3. If 'Semester not cleared' is printed in Remarks, set overall_cgpa to 'N.A.' and overall_grade to 'Fail / Semester Not Cleared'.
+    4. Read exact remarks from the Remarks line (e.g. 'Qualified with Honours' or 'Semester not cleared').
     """
 
     max_retries = 3
@@ -186,7 +183,7 @@ def parse_marksheet_with_openai_vision(page):
             )
             table_data = json.loads(response_table.choices[0].message.content)
 
-            # API Call 2: Header Data (Low Detail)
+            # API Call 2: Header Data
             response_header = ai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 response_format={"type": "json_object"},
@@ -199,7 +196,7 @@ def parse_marksheet_with_openai_vision(page):
                                 "type": "image_url",
                                 "image_url": {
                                     "url": f"data:image/jpeg;base64,{base64_full}",
-                                    "detail": "low"
+                                    "detail": "high"
                                 }
                             }
                         ]
@@ -395,13 +392,21 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                             raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
                             if not raw_s: continue
 
+                            yr_val = str(sem.get("year") or sem.get("exam_year") or "").strip()
+                            sgpa_val = str(sem.get("sgpa") or sem.get("gpa") or "").strip()
+                            marks_val = str(sem.get("marks") or sem.get("marks_obtained") or "").strip()
+
+                            # STRICT FILTER: Skip empty/blank semester rows that have no year and no SGPA
+                            if (not yr_val or yr_val in ["-", "N.A.", "None", ""]) and (not sgpa_val or sgpa_val in ["-", "N.A.", "None", ""]):
+                                continue
+
                             normalized_semesters.append({
                                 "semester": raw_s,
-                                "year": str(sem.get("year") or sem.get("exam_year") or "").strip(),
+                                "year": yr_val if yr_val not in ["-", "N.A."] else "-",
                                 "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
-                                "marks": str(sem.get("marks") or sem.get("marks_obtained") or sem.get("obtained") or "-").strip(),
+                                "marks": marks_val if marks_val not in ["-", "N.A."] else "-",
                                 "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
-                                "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
+                                "sgpa": sgpa_val if sgpa_val not in ["-", "N.A."] else "N.A."
                             })
                     except Exception as ai_err:
                         if "429" in str(ai_err) or "rate" in str(ai_err) or "quota" in str(ai_err):
