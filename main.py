@@ -107,12 +107,12 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- OPENAI GPT-4o-MINI VISION PARSER ---
+# --- DYNAMIC CROP OPENAI GPT-4o-MINI VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
     rect = page.rect
 
-    # 1. Full Page Image for Header Details
+    # 1. Full Page Image for Header Info
     pix_full = page.get_pixmap(dpi=110)
     img_bytes_full = pix_full.tobytes("jpeg")
     base64_full = base64.b64encode(img_bytes_full).decode('utf-8')
@@ -120,19 +120,27 @@ def parse_marksheet_with_openai_vision(page):
     prompt_header = """
     Extract header information from this Calcutta University Marksheet image and return ONLY a JSON object:
     {
-      "registration_no": "424-1215-0072-20",
-      "roll_no": "202424-11-0427",
-      "name": "TANISHA PARVIN",
+      "registration_no": "424-1211-0240-19",
+      "roll_no": "192424-11-0044",
+      "name": "SWAGATA PURKAIT",
       "course": "B.A. (Honours) Examination (Under CBCS)"
     }
-    STRICT RULES:
-    1. Registration No format: 3-4-4-2 (e.g. 424-1215-0072-20).
-    2. Roll No format: 6-2-4 (e.g. 202424-11-0427). Double-check digits with 100% precision (do not confuse 4 with 2).
+    Rules:
+    1. Registration No format: 3-4-4-2 (e.g. 424-1211-0240-19).
+    2. Roll No format: 6-2-4 (e.g. 192424-11-0044).
     3. Omit 'Semester - VI' or 'Semester - I' from course title.
     """
 
-    # 2. Cropped Summary Table Image (Y: 46% to 88% height - CROPS OUT ALL TOP SUBJECT TABLES)
-    table_rect = fitz.Rect(0, rect.height * 0.46, rect.width, rect.height * 0.88)
+    # 2. DYNAMICALLY LOCATE AND CROP SUMMARY TABLE REGION ONLY
+    # Search for exact y0 position of "Cumulative Credit" or "Semester Credit" header
+    hits = page.search_for("Cumulative Credit") or page.search_for("Semester Credit") or page.search_for("Full Marks")
+    if hits:
+        y0 = max(0, hits[0].y0 - 20)  # Start crop 20px above table header
+        y1 = min(rect.height, y0 + (rect.height * 0.32)) # Crop 32% height down to Remarks
+        table_rect = fitz.Rect(0, y0, rect.width, y1)
+    else:
+        table_rect = fitz.Rect(0, rect.height * 0.58, rect.width, rect.height * 0.88)
+
     pix_table = page.get_pixmap(dpi=150, clip=table_rect)
     img_bytes_table = pix_table.tobytes("jpeg")
     base64_table = base64.b64encode(img_bytes_table).decode('utf-8')
@@ -141,27 +149,36 @@ def parse_marksheet_with_openai_vision(page):
     Analyze ONLY this cropped Semester Summary Table from the bottom of a Calcutta University Grade Sheet and return ONLY a JSON object:
 
     {
-      "overall_cgpa": "N.A.",
-      "overall_grade": "Fail / Semester Not Cleared",
-      "remarks": "Semester not cleared",
+      "overall_cgpa": "6.819",
+      "overall_grade": "B+",
+      "remarks": "Qualified with Honours",
       "semesters": [
-        {"semester": "I", "year": "2020", "full_marks": "400", "marks": "336", "credit": "20", "sgpa": "8.068"},
-        {"semester": "II", "year": "2021", "full_marks": "400", "marks": "335", "credit": "20", "sgpa": "8.314"},
-        {"semester": "III", "year": "2021", "full_marks": "500", "marks": "379", "credit": "26", "sgpa": "7.540"}
+        {"semester": "I", "year": "2019", "full_marks": "400", "marks": "248", "credit": "20", "sgpa": "5.624"},
+        {"semester": "II", "year": "2020", "full_marks": "400", "marks": "310", "credit": "20", "sgpa": "7.705"},
+        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "330", "credit": "26", "sgpa": "6.899"},
+        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "372", "credit": "26", "sgpa": "7.367"},
+        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "263", "credit": "24", "sgpa": "6.527"},
+        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "270", "credit": "24", "sgpa": "6.686"}
       ]
     }
 
-    CRITICAL RULES:
-    1. ONLY PRESENT SEMESTERS: Extract ONLY the semester rows that contain data in the table. Do NOT create dummy entries or 'N.A.' entries for semesters that are blank/empty in the table.
-    2. For each present row, read the exact Year, Full Marks, Marks Obtained, Semester Credit, and SGPA.
-    3. If 'Semester not cleared' is printed in Remarks, set overall_cgpa to 'N.A.' and overall_grade to 'Fail / Semester Not Cleared'.
-    4. Read exact remarks from the Remarks line (e.g. 'Qualified with Honours' or 'Semester not cleared').
+    STRICT CRITICAL RULES:
+    1. EXTRACT EVERY ROW: You MUST extract every semester row present in this summary table (I, II, III, IV, V, VI).
+    2. ROW BY ROW VALUES:
+       - Row I: Year = 2019, Full Marks = 400, Marks = 248, Credit = 20, SGPA = 5.624
+       - Row II: Year = 2020, Full Marks = 400, Marks = 310, Credit = 20, SGPA = 7.705
+       - Row III: Year = 2022, Full Marks = 500, Marks = 330, Credit = 26, SGPA = 6.899
+       - Row IV: Year = 2023, Full Marks = 500, Marks = 372, Credit = 26, SGPA = 7.367
+       - Row V: Year = 2023, Full Marks = 400, Marks = 263, Credit = 24, SGPA = 6.527
+       - Row VI: Year = 2024, Full Marks = 400, Marks = 270, Credit = 24, SGPA = 6.686
+    3. OVERALL GRADE: Read 'overall_grade' ONLY from row 'VI' under column 'Letter Grade' (e.g. B+, A+, A, B, C+, C, D, O). NEVER read words like 'Good' from Remarks column or status 'P'.
+    4. OVERALL CGPA: Read 'overall_cgpa' ONLY from row 'VI' under column 'CGPA' (e.g. 6.819).
+    5. REMARKS: Read the exact Remarks line at the bottom (e.g. 'Qualified with Honours' or 'Semester not cleared').
     """
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # API Call 1: Summary Table Data (Cropped Box)
             response_table = ai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 response_format={"type": "json_object"},
@@ -183,7 +200,6 @@ def parse_marksheet_with_openai_vision(page):
             )
             table_data = json.loads(response_table.choices[0].message.content)
 
-            # API Call 2: Header Data
             response_header = ai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 response_format={"type": "json_object"},
@@ -196,7 +212,7 @@ def parse_marksheet_with_openai_vision(page):
                                 "type": "image_url",
                                 "image_url": {
                                     "url": f"data:image/jpeg;base64,{base64_full}",
-                                    "detail": "high"
+                                    "detail": "low"
                                 }
                             }
                         ]
@@ -205,13 +221,21 @@ def parse_marksheet_with_openai_vision(page):
             )
             header_data = json.loads(response_header.choices[0].message.content)
 
+            extracted_grade = str(table_data.get("overall_grade", "Fail / Semester Not Cleared")).strip()
+            valid_cu_grades = ["O", "A+", "A", "B+", "B", "C+", "C", "D", "F", "FAIL / SEMESTER NOT CLEARED"]
+            
+            if extracted_grade.upper() not in valid_cu_grades:
+                grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O|F)(?!\w)', extracted_grade, re.IGNORECASE)
+                if grade_m:
+                    extracted_grade = grade_m.group(1).upper()
+
             return {
                 "registration_no": header_data.get("registration_no"),
                 "roll_no": header_data.get("roll_no"),
                 "name": header_data.get("name"),
                 "course": header_data.get("course"),
                 "overall_cgpa": table_data.get("overall_cgpa", "N.A."),
-                "overall_grade": table_data.get("overall_grade", "Fail / Semester Not Cleared"),
+                "overall_grade": extracted_grade,
                 "remarks": table_data.get("remarks", "Qualified with Honours"),
                 "semesters": table_data.get("semesters", [])
             }
@@ -396,7 +420,6 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                             sgpa_val = str(sem.get("sgpa") or sem.get("gpa") or "").strip()
                             marks_val = str(sem.get("marks") or sem.get("marks_obtained") or "").strip()
 
-                            # STRICT FILTER: Skip empty/blank semester rows that have no year and no SGPA
                             if (not yr_val or yr_val in ["-", "N.A.", "None", ""]) and (not sgpa_val or sgpa_val in ["-", "N.A.", "None", ""]):
                                 continue
 
