@@ -270,12 +270,12 @@
                 document.getElementById("s-pass-year").innerText = data.student.passout_year;
                 document.getElementById("s-cgpa").innerText = data.student.cgpa;
 
-                // Populate 6-column input table matching the PDF marksheet
                 const tbody = document.getElementById("sem-table-body");
                 tbody.innerHTML = "";
                 data.semesters.forEach(s => {
+                    let semLabel = s.semester.startsWith("Semester") ? s.semester : `Semester ${s.semester}`;
                     tbody.innerHTML += `<tr>
-                        <td><b>${s.semester}</b></td>
+                        <td><b>${semLabel}</b></td>
                         <td>${s.year || "-"}</td>
                         <td>${s.full_marks || "400"}</td>
                         <td>${s.marks || "-"}</td>
