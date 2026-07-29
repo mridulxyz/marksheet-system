@@ -4,18 +4,12 @@ import shutil
 import secrets
 import json
 import base64
-from PIL import Image
 
 # Safe Imports
 try:
     import fitz  # PyMuPDF
 except ImportError:
     fitz = None
-
-try:
-    import pdfplumber
-except ImportError:
-    pdfplumber = None
 
 try:
     import openai
@@ -157,7 +151,7 @@ def parse_marksheet_with_openai_vision(page):
     result_json = response.choices[0].message.content
     return json.loads(result_json)
 
-# --- LOCAL FALLBACK PARSER (IF OPENAI API KEY IS MISSING) ---
+# --- LOCAL FALLBACK PARSER ---
 
 def extract_text_rows_from_rect(page, rect_box):
     try:
@@ -341,6 +335,7 @@ def serve_frontend(username: str = Depends(authenticate_admin)):
 @app.post("/api/admin/upload-marksheet")
 async def upload_marksheet(
     file: UploadFile = File(...), 
+    selected_course: str = Form("AUTO"),
     db: Session = Depends(get_db), 
     user: str = Depends(authenticate_admin)
 ):
@@ -353,54 +348,66 @@ async def upload_marksheet(
     
     try:
         doc = fitz.open(temp_pdf_path) if fitz else []
+        ai_quota_exceeded = False
         
         for page_num in range(len(doc)):
             try:
                 page = doc[page_num]
                 
-                # --- STRATEGY 1: OPENAI VISION (IF API KEY IS SET) ---
-                if ai_client:
-                    data = parse_marksheet_with_openai_vision(page)
+                # --- STRATEGY 1: OPENAI VISION ---
+                if ai_client and not ai_quota_exceeded:
+                    try:
+                        data = parse_marksheet_with_openai_vision(page)
 
-                    reg_no = data.get("registration_no")
-                    if not reg_no or reg_no == "null":
-                        debug_logs.append(f"Page {page_num+1}: Registration Number not found.")
-                        continue
+                        reg_no = data.get("registration_no")
+                        if not reg_no or reg_no == "null":
+                            debug_logs.append(f"Page {page_num+1}: Registration Number not found.")
+                            continue
 
-                    roll_no = data.get("roll_no", "Unknown")
-                    name = data.get("name", "Unknown Student")
-                    course = data.get("course", "B.A. (Honours) Examination (Under CBCS)")
-                    overall_cgpa = data.get("overall_cgpa", "N.A.")
-                    overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
-                    
-                    raw_semesters = data.get("semesters", [])
-                    normalized_semesters = []
-                    for sem in raw_semesters:
-                        if not isinstance(sem, dict): continue
-                        raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
-                        raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
-                        if not raw_s: continue
+                        roll_no = data.get("roll_no", "Unknown")
+                        name = data.get("name", "Unknown Student")
+                        
+                        # Use manual course override if selected, else use AI extracted course
+                        course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "B.A. (Honours) Examination (Under CBCS)")
+                        
+                        overall_cgpa = data.get("overall_cgpa", "N.A.")
+                        overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
+                        
+                        raw_semesters = data.get("semesters", [])
+                        normalized_semesters = []
+                        for sem in raw_semesters:
+                            if not isinstance(sem, dict): continue
+                            raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
+                            raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
+                            if not raw_s: continue
 
-                        normalized_semesters.append({
-                            "semester": raw_s,
-                            "year": str(sem.get("year") or sem.get("exam_year") or "").strip(),
-                            "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
-                            "marks": str(sem.get("marks") or sem.get("marks_obtained") or sem.get("obtained") or "-").strip(),
-                            "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
-                            "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
-                        })
+                            normalized_semesters.append({
+                                "semester": raw_s,
+                                "year": str(sem.get("year") or sem.get("exam_year") or "").strip(),
+                                "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
+                                "marks": str(sem.get("marks") or sem.get("marks_obtained") or sem.get("obtained") or "-").strip(),
+                                "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
+                                "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
+                            })
+                    except Exception as ai_err:
+                        if "insufficient_quota" in str(ai_err) or "429" in str(ai_err):
+                            debug_logs.append(f"Page {page_num+1}: OpenAI Quota Exceeded. Falling back to local parser...")
+                            ai_quota_exceeded = True
+                        else:
+                            debug_logs.append(f"Page {page_num+1} AI Exception: {ai_err}")
 
-                # --- STRATEGY 2: LOCAL PYMUPDF EXTRACTION (FALLBACK) ---
-                else:
+                # --- STRATEGY 2: LOCAL PARSER FALLBACK ---
+                if not ai_client or ai_quota_exceeded:
                     full_text = page.get_text("text") or ""
                     reg_no, match_method = extract_reg_no_bulletproof(full_text)
                     if not reg_no:
-                        debug_logs.append(f"Page {page_num+1}: OPENAI_API_KEY environment variable is not set on Render. Local fallback failed to detect Registration No.")
+                        debug_logs.append(f"Page {page_num+1}: Local fallback failed to detect Registration No.")
                         continue
 
                     roll_no = extract_roll_no_bulletproof(full_text)
                     name = extract_name_bulletproof(full_text)
-                    course = extract_course(full_text)
+                    
+                    course = selected_course if (selected_course and selected_course != "AUTO") else extract_course(full_text)
 
                     rect = page.rect
                     table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
@@ -452,7 +459,7 @@ async def upload_marksheet(
                         ))
                         
                 extracted_count += 1
-                method_label = "OpenAI AI Vision" if ai_client else "Local PyMuPDF"
+                method_label = "OpenAI AI Vision" if (ai_client and not ai_quota_exceeded) else "Local Fallback"
                 debug_logs.append(f"Page {page_num+1} Success ({method_label}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(normalized_semesters)}")
             except Exception as page_err:
                 db.rollback()
@@ -481,7 +488,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
     
     sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
     
-    # Passout Year calculation: Year of Semester VI
+    # Calculate Passout Year: Year of Semester VI
     passout_year = "Unknown"
     for s in sems:
         if s.semester in ["VI", "6", "VI."] and s.year:
@@ -515,6 +522,24 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
             for s in sems
         ]
     }
+
+@app.delete("/api/admin/student/{reg_no}")
+def delete_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
+    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    if not student: 
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+    db.delete(student)
+    db.commit()
+    return {"message": f"Student {reg_no} deleted successfully"}
+
+@app.post("/api/admin/clear-all-students")
+def clear_all_students(db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
+    db.query(SemesterRecord).delete()
+    db.query(Student).delete()
+    db.commit()
+    return {"message": "All student records cleared successfully"}
 
 @app.post("/api/admin/update-status/{reg_no}")
 async def update_student_status(
