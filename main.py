@@ -12,6 +12,11 @@ try:
 except ImportError:
     fitz = None
 
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
+
 import pytesseract
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
@@ -87,19 +92,16 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- OPENCV OPTION 4: WATERMARK REMOVAL FILTER ---
+# --- OPENCV OTSU ADAPTIVE BINARIZATION ---
 
-def opencv_erase_watermark(pil_img):
+def opencv_erase_watermark_otsu(pil_img):
     """
-    OPENCV OPTION 4: Converts image to grayscale and applies thresholding at 180
-    to completely erase the gray watermark 'UNIVERSITY OF CALCUTTA' background.
+    Applies Otsu's Adaptive Binarization to calculate optimal thresholding
+    for yellowed or warm-lit scanned marksheet papers automatically.
     """
     img_np = np.array(pil_img)
     gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-    
-    # Thresholding: Intensity > 180 (watermark) becomes pure white (255)
-    _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
-    
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     return Image.fromarray(thresh)
 
 # --- HEADER PARSERS ---
@@ -162,16 +164,80 @@ def extract_name_bulletproof(text: str):
     return "Unknown Student"
 
 def extract_course(text: str):
-    if not text: return "B.A. (Honours)"
+    if not text: return "B.A. (Honours) Examination"
     match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text, re.IGNORECASE)
     if match:
-        return match.group(0).strip()
-    return "B.A. (Honours)"
+        raw_course = match.group(0).strip()
+        # Clean out "Semester - VI" or "Semester-VI" or "Semester 6"
+        cleaned_course = re.sub(r'Semester\s*[\-\–\_]?\s*(VI|V|IV|III|II|I|\d+)', '', raw_course, flags=re.IGNORECASE)
+        cleaned_course = re.sub(r'\s+', ' ', cleaned_course).strip()
+        return cleaned_course
+    return "B.A. (Honours) Examination"
 
-# --- OPENCV OPTION 4 PARSER ---
+# --- UNIVERSAL SEMESTER TABLE PARSER ---
+
+def extract_all_semesters(text: str):
+    sems_data = []
+    if not text: return sems_data
+
+    clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', text)
+    clean = clean.replace('O', '0').replace('o', '0').replace('I', '1').replace('l', '1')
+
+    # Matches Roman Numeral + Year + Full Marks + Marks Obtained + Credit + SGPA
+    sem_pattern = re.compile(
+        r'\b(I|II|III|IV|V|VI)\b[\s\n\r]+(\d{4})[\s\n\r]+(\d{3})[\s\n\r]+(\d{2,3})[\s\n\r]+(\d{2})[\s\n\r]+([0-9]\.\d{2,3})',
+        re.IGNORECASE
+    )
+
+    for m in sem_pattern.finditer(clean):
+        s_num, s_yr, s_fm, s_marks, s_cred, s_sgpa = m.groups()
+        s_num_upper = s_num.upper()
+        if not any(x["semester"] == s_num_upper for x in sems_data):
+            sems_data.append({
+                "semester": s_num_upper,
+                "year": s_yr,
+                "full_marks": s_fm,
+                "marks": s_marks,
+                "credit": s_cred,
+                "sgpa": s_sgpa
+            })
+
+    # Line-by-line fallback if multiline pattern missed rows
+    if len(sems_data) < 5:
+        sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
+        for line in clean.splitlines():
+            line_str = line.strip()
+            for sem in sem_keys:
+                if re.search(rf'\b{sem}\b', line_str):
+                    years = re.findall(r'\b(20\d\d)\b', line_str)
+                    floats = re.findall(r'\b([1-9]\.\d{2,3})\b', line_str)
+                    integers = [i for i in re.findall(r'\b(\d{2,3})\b', line_str) if i not in years]
+
+                    if years and floats:
+                        s_yr = years[0]
+                        s_sgpa = floats[0]
+                        s_fm = integers[0] if len(integers) >= 1 else "400"
+                        s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
+                        s_cred = integers[2] if len(integers) >= 3 else "20"
+
+                        if not any(x["semester"] == sem for x in sems_data):
+                            sems_data.append({
+                                "semester": sem,
+                                "year": s_yr,
+                                "full_marks": s_fm,
+                                "marks": s_marks,
+                                "credit": s_cred,
+                                "sgpa": s_sgpa
+                            })
+
+    # Sort semesters in order: I, II, III, IV, V, VI
+    sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
+    sems_data = sorted(sems_data, key=lambda x: sem_order.get(x["semester"], 99))
+
+    return sems_data
 
 def parse_ocr_summary_table(ocr_text: str):
-    sems_data = []
+    sems_data = extract_all_semesters(ocr_text)
     overall_cgpa = "N.A."
     overall_grade = "Fail / Semester Not Cleared"
 
@@ -179,79 +245,32 @@ def parse_ocr_summary_table(ocr_text: str):
         return sems_data, overall_cgpa, overall_grade
 
     clean_ocr = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', ocr_text)
-    clean_ocr = clean_ocr.replace('O', '0').replace('o', '0').replace('I', '1').replace('l', '1')
 
-    # 1. Parse Semester Rows Line by Line
-    sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
-    lines = [line.strip() for line in clean_ocr.splitlines() if line.strip()]
-
-    for line in lines:
-        for sem in sem_keys:
-            sem_match = re.search(rf'\b{sem}\b', line)
-            if sem_match:
-                years = re.findall(r'\b(20\d\d)\b', line)
-                if not years:
-                    continue
-                s_yr = years[0]
-
-                gpa_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', line)
-                if not gpa_floats:
-                    continue
-                s_sgpa = gpa_floats[0]
-
-                integers = [i for i in re.findall(r'\b(\d{2,3})\b', line) if i != s_yr]
-
-                s_fm = integers[0] if len(integers) >= 1 else "400"
-                s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
-                s_cred = integers[2] if len(integers) >= 3 else "20"
-
-                if not any(item["semester"] == sem for item in sems_data):
-                    sems_data.append({
-                        "semester": sem,
-                        "year": s_yr,
-                        "full_marks": s_fm,
-                        "marks": s_marks,
-                        "credit": s_cred,
-                        "sgpa": s_sgpa
-                    })
-
-                # On Row VI: Extract CGPA and Grade
-                if sem == 'VI':
-                    if len(gpa_floats) >= 2:
-                        overall_cgpa = gpa_floats[1]  # 2nd float on row VI is CGPA (6.819)
-                    elif len(gpa_floats) == 1:
-                        cg_m = re.search(r'6\.819|CGPA[^\d]{0,10}(\d\.\d{2,3})', clean_ocr)
-                        if cg_m: overall_cgpa = cg_m.group(0)
-
-                    grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', line)
-                    if grade_m:
-                        overall_grade = grade_m.group(1)
-
-    # Sort semesters in proper order: I, II, III, IV, V, VI
-    sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
-    sems_data = sorted(sems_data, key=lambda x: sem_order.get(x["semester"], 99))
-
-    # 2. Check Remarks
+    # 1. Check Remarks
     is_failed = bool(re.search(r'Semester\s*not\s*cleared|not\s*cleared', clean_ocr, re.IGNORECASE))
     if is_failed:
         overall_cgpa = "N.A."
         overall_grade = "Fail / Semester Not Cleared"
+    else:
+        # On row VI: extract CGPA and Grade
+        vi_match = re.search(r'\bVI\b\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d\.]+)\s+(\d+)\s+([\d\.]+)\s+([A-Z\+\-]+)', clean_ocr)
+        if vi_match:
+            overall_cgpa = vi_match.group(7) # 6.819
+            grade_val = vi_match.group(8) # B+
+            if grade_val.upper() in ["A+", "A", "B+", "B", "C+", "C", "D", "O"]:
+                overall_grade = grade_val
+        else:
+            all_gpas = re.findall(r'\b([1-9]\.\d{2,3})\b', clean_ocr)
+            if len(all_gpas) >= 7:
+                overall_cgpa = all_gpas[-1]  # Last float is CGPA (6.819)
+            elif len(all_gpas) >= 1:
+                cg_m = re.search(r'140\s+([\d\.]+)|CGPA[^\d]{0,15}([\d\.]+)', clean_ocr)
+                if cg_m:
+                    overall_cgpa = cg_m.group(1) or cg_m.group(2)
 
-    # 3. Fallback CGPA Search if still N.A. and student passed
-    if not is_failed and overall_cgpa == "N.A.":
-        all_gpas = re.findall(r'\b([1-9]\.\d{2,3})\b', clean_ocr)
-        if len(all_gpas) >= 7:
-            overall_cgpa = all_gpas[-1]  # Last float is CGPA (6.819)
-        elif len(all_gpas) >= 1:
-            cg_m = re.search(r'140\s+([\d\.]+)|CGPA[^\d]{0,15}([\d\.]+)', clean_ocr)
-            if cg_m:
-                overall_cgpa = cg_m.group(1) or cg_m.group(2)
-
-    # 4. Fallback Grade Search if still default and CGPA valid
-    if overall_cgpa != "N.A." and overall_grade == "Fail / Semester Not Cleared":
-        grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', clean_ocr)
-        if grade_m:
-            overall_grade = grade_m.group(1)
+            grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', clean_ocr)
+            if grade_m:
+                overall_grade = grade_m.group(1)
 
     return sems_data, overall_cgpa, overall_grade
 
@@ -364,17 +383,30 @@ async def upload_marksheet(
                 name = extract_name_bulletproof(full_text)
                 course = extract_course(full_text)
 
-                # 2. OPENCV OPTION 4: Crop Summary Table Box (48% to 88% height) & Erase Watermark
+                # 2. CROP SUMMARY TABLE REGION & Otsu Binarize
                 table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
-                pix_table = page.get_pixmap(dpi=130, clip=table_rect)
-                img_table = Image.frombytes("RGB", [pix_table.width, pix_table.height], pix_table.samples)
+                table_text = page.get_text("text", clip=table_rect) or ""
 
-                # Apply OpenCV Watermark Removal Threshold
-                clean_table_img = opencv_erase_watermark(img_table)
-                table_ocr_text = pytesseract.image_to_string(clean_table_img, lang="eng", config="--psm 6")
+                # Parse native text first
+                sems_data, overall_cgpa, overall_grade = parse_ocr_summary_table(table_text)
 
-                # 3. Parse OpenCV Cleaned OCR Table Text
-                sems_data, overall_cgpa, overall_grade = parse_ocr_summary_table(table_ocr_text)
+                # If native text missed semester rows, apply OpenCV Otsu OCR
+                if len(sems_data) < 5:
+                    try:
+                        pix_table = page.get_pixmap(dpi=140, clip=table_rect)
+                        img_table = Image.frombytes("RGB", [pix_table.width, pix_table.height], pix_table.samples)
+                        
+                        clean_table_img = opencv_erase_watermark_otsu(img_table)
+                        table_ocr_text = pytesseract.image_to_string(clean_table_img, lang="eng", config="--psm 6")
+                        
+                        sems_ocr, cgpa_ocr, grade_ocr = parse_ocr_summary_table(table_ocr_text)
+                        if len(sems_ocr) > len(sems_data):
+                            sems_data = sems_ocr
+                        if cgpa_ocr != "N.A.":
+                            overall_cgpa = cgpa_ocr
+                            overall_grade = grade_ocr
+                    except Exception as table_ocr_err:
+                        debug_logs.append(f"Page {page_num+1} Table OCR Exception: {table_ocr_err}")
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -448,6 +480,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
     
     sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
     
+    # Calculate passout year: Exam year of Semester VI
     passout_year = "Unknown"
     for s in sems:
         if s.semester == "VI" and s.year:
