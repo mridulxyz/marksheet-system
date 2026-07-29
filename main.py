@@ -4,9 +4,18 @@ import shutil
 import secrets
 import json
 import base64
-import fitz  # PyMuPDF
-import openai
 from PIL import Image
+
+# Safe Imports to prevent Exit Status 1 on startup
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
+
+try:
+    import openai
+except ImportError:
+    openai = None
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,7 +44,7 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
 
 # --- OPENAI CLIENT SETUP ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ai_client = openai.OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+ai_client = openai.OpenAI(api_key=OPENAI_API_KEY) if (openai and OPENAI_API_KEY) else None
 
 # --- DATABASE SETUP ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./calcutta_university.db")
@@ -143,6 +152,39 @@ def parse_marksheet_with_openai_vision(page):
     result_json = response.choices[0].message.content
     return json.loads(result_json)
 
+# --- FALLBACK TEXT PARSER ---
+
+def extract_reg_no_bulletproof(text: str):
+    if not text: return None
+    t = re.sub(r'[—–_~]', '-', text)
+    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
+
+    match = re.search(r'(?:Registration|Regn|Reg|Registra)[^\d]{0,15}([0-9\-\s\.\/]{13,22})', t_fixed, re.IGNORECASE)
+    if match:
+        digits = re.sub(r'\D', '', match.group(1))
+        if len(digits) >= 13:
+            d = digits[:13]
+            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}"
+
+    all_digits_clusters = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
+    if all_digits_clusters:
+        d = all_digits_clusters[0]
+        return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}"
+
+    return None
+
+def extract_roll_no_bulletproof(text: str):
+    if not text: return "Unknown"
+    t = re.sub(r'[—–_~]', '-', text)
+    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
+
+    all_digits_clusters = re.findall(r'\b\d{12}\b', re.sub(r'\D', ' ', t_fixed))
+    if all_digits_clusters:
+        d = all_digits_clusters[0]
+        return f"{d[:6]}-{d[6:8]}-{d[8:]}"
+
+    return "Unknown"
+
 # --- FASTAPI APP SETUP ---
 app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
 
@@ -168,7 +210,7 @@ def get_db():
 def startup_db_setup():
     try:
         Base.metadata.create_all(bind=engine)
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             if "postgresql" in DATABASE_URL:
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS course VARCHAR DEFAULT 'Unknown Course';"))
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS marksheet_received BOOLEAN DEFAULT FALSE;"))
@@ -178,7 +220,6 @@ def startup_db_setup():
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS proof_document_path VARCHAR DEFAULT '';"))
                 conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS full_marks VARCHAR DEFAULT '400';"))
                 conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS credit VARCHAR DEFAULT '20';"))
-                conn.commit()
             elif "sqlite" in DATABASE_URL:
                 columns = [row[1] for row in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
                 if columns:
@@ -193,7 +234,6 @@ def startup_db_setup():
                 if sem_columns:
                     if "full_marks" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN full_marks VARCHAR DEFAULT '400';"))
                     if "credit" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN credit VARCHAR DEFAULT '20';"))
-                conn.commit()
     except Exception as e:
         print(f"Startup Migration Note: {e}")
 
@@ -210,9 +250,6 @@ async def upload_marksheet(
     db: Session = Depends(get_db), 
     user: str = Depends(authenticate_admin)
 ):
-    if not ai_client:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is missing on Render.")
-
     temp_pdf_path = f"temp_{file.filename}"
     with open(temp_pdf_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -221,96 +258,97 @@ async def upload_marksheet(
     debug_logs = []
     
     try:
-        doc = fitz.open(temp_pdf_path)
+        doc = fitz.open(temp_pdf_path) if fitz else []
         
         for page_num in range(len(doc)):
             try:
                 page = doc[page_num]
                 
-                # Parse page using OpenAI Vision
-                data = parse_marksheet_with_openai_vision(page)
+                # If OpenAI Vision is configured, use AI Vision Extraction
+                if ai_client:
+                    data = parse_marksheet_with_openai_vision(page)
 
-                reg_no = data.get("registration_no")
-                if not reg_no or reg_no == "null":
-                    debug_logs.append(f"Page {page_num+1}: Could not find Registration Number.")
-                    continue
+                    reg_no = data.get("registration_no")
+                    if not reg_no or reg_no == "null":
+                        debug_logs.append(f"Page {page_num+1}: Registration Number not found.")
+                        continue
 
-                roll_no = data.get("roll_no", "Unknown")
-                name = data.get("name", "Unknown Student")
-                course = data.get("course", "B.A. (Honours) Examination (Under CBCS)")
-                overall_cgpa = data.get("overall_cgpa", "N.A.")
-                overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
-                
-                # Dynamic Key Normalization for Semester Data
-                raw_semesters = data.get("semesters", [])
-                normalized_semesters = []
-                for sem in raw_semesters:
-                    if not isinstance(sem, dict): continue
+                    roll_no = data.get("roll_no", "Unknown")
+                    name = data.get("name", "Unknown Student")
+                    course = data.get("course", "B.A. (Honours) Examination (Under CBCS)")
+                    overall_cgpa = data.get("overall_cgpa", "N.A.")
+                    overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
                     
-                    raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
-                    raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
-                    if not raw_s: continue
+                    raw_semesters = data.get("semesters", [])
+                    normalized_semesters = []
+                    for sem in raw_semesters:
+                        if not isinstance(sem, dict): continue
+                        raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
+                        raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
+                        if not raw_s: continue
 
-                    normalized_semesters.append({
-                        "semester": raw_s,
-                        "year": str(sem.get("year") or sem.get("exam_year") or "").strip(),
-                        "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
-                        "marks": str(sem.get("marks") or sem.get("marks_obtained") or sem.get("obtained") or "-").strip(),
-                        "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
-                        "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
-                    })
+                        normalized_semesters.append({
+                            "semester": raw_s,
+                            "year": str(sem.get("year") or sem.get("exam_year") or "").strip(),
+                            "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
+                            "marks": str(sem.get("marks") or sem.get("marks_obtained") or sem.get("obtained") or "-").strip(),
+                            "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
+                            "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
+                        })
 
-                # Database Upsert
-                existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
-                if existing_student:
-                    existing_student.name = name
-                    existing_student.roll_no = roll_no
-                    existing_student.course = course
-                    existing_student.overall_cgpa = overall_cgpa
-                    existing_student.overall_grade = overall_grade
-                    
-                    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-                    for sem in normalized_semesters:
-                        db.add(SemesterRecord(
-                            registration_no=reg_no, 
-                            semester=sem["semester"], 
-                            year=sem["year"], 
-                            full_marks=sem["full_marks"],
-                            marks_obtained=sem["marks"], 
-                            credit=sem["credit"],
-                            sgpa=sem["sgpa"]
-                        ))
-                else:
-                    admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
-                    student = Student(
-                        registration_no=reg_no, 
-                        roll_no=roll_no, 
-                        name=name, 
-                        admission_year=admission_year, 
-                        course=course, 
-                        overall_cgpa=overall_cgpa, 
-                        overall_grade=overall_grade
-                    )
-                    db.add(student)
-                    for sem in normalized_semesters:
-                        db.add(SemesterRecord(
-                            registration_no=reg_no, 
-                            semester=sem["semester"], 
-                            year=sem["year"], 
-                            full_marks=sem["full_marks"],
-                            marks_obtained=sem["marks"], 
-                            credit=sem["credit"],
-                            sgpa=sem["sgpa"]
-                        ))
+                    # Database Upsert
+                    existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
+                    if existing_student:
+                        existing_student.name = name
+                        existing_student.roll_no = roll_no
+                        existing_student.course = course
+                        existing_student.overall_cgpa = overall_cgpa
+                        existing_student.overall_grade = overall_grade
                         
-                extracted_count += 1
-                debug_logs.append(f"Page {page_num+1} AI Success: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(normalized_semesters)}")
+                        db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+                        for sem in normalized_semesters:
+                            db.add(SemesterRecord(
+                                registration_no=reg_no, 
+                                semester=sem["semester"], 
+                                year=sem["year"], 
+                                full_marks=sem["full_marks"],
+                                marks_obtained=sem["marks"], 
+                                credit=sem["credit"],
+                                sgpa=sem["sgpa"]
+                            ))
+                    else:
+                        admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
+                        student = Student(
+                            registration_no=reg_no, 
+                            roll_no=roll_no, 
+                            name=name, 
+                            admission_year=admission_year, 
+                            course=course, 
+                            overall_cgpa=overall_cgpa, 
+                            overall_grade=overall_grade
+                        )
+                        db.add(student)
+                        for sem in normalized_semesters:
+                            db.add(SemesterRecord(
+                                registration_no=reg_no, 
+                                semester=sem["semester"], 
+                                year=sem["year"], 
+                                full_marks=sem["full_marks"],
+                                marks_obtained=sem["marks"], 
+                                credit=sem["credit"],
+                                sgpa=sem["sgpa"]
+                            ))
+                            
+                    extracted_count += 1
+                    debug_logs.append(f"Page {page_num+1} AI Success: Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(normalized_semesters)}")
+                else:
+                    debug_logs.append(f"Page {page_num+1}: OPENAI_API_KEY environment variable is not set on Render.")
             except Exception as page_err:
                 db.rollback()
                 debug_logs.append(f"Page {page_num+1} Exception: {page_err}")
                 continue
 
-        doc.close()
+        if doc: doc.close()
         db.commit()
     except Exception as e:
         db.rollback()
