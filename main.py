@@ -4,6 +4,8 @@ import shutil
 import secrets
 import json
 import base64
+import time
+from PIL import Image
 
 # Safe Imports
 try:
@@ -15,6 +17,16 @@ try:
     import openai
 except ImportError:
     openai = None
+
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
+
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -354,9 +366,16 @@ async def upload_marksheet(
             try:
                 page = doc[page_num]
                 
-                # --- STRATEGY 1: OPENAI VISION ---
+                # --- STRATEGY 1: OPENAI VISION WITH RATE LIMIT RETRY ---
+                reg_no = None
+                normalized_semesters = []
+                
                 if ai_client and not ai_quota_exceeded:
                     try:
+                        # 0.4s pause between pages prevents hitting OpenAI RPM rate limits on bulk 100+ page PDFs
+                        if page_num > 0:
+                            time.sleep(0.4)
+
                         data = parse_marksheet_with_openai_vision(page)
 
                         reg_no = data.get("registration_no")
@@ -366,15 +385,11 @@ async def upload_marksheet(
 
                         roll_no = data.get("roll_no", "Unknown")
                         name = data.get("name", "Unknown Student")
-                        
-                        # Use manual course override if selected, else use AI extracted course
                         course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "B.A. (Honours) Examination (Under CBCS)")
-                        
                         overall_cgpa = data.get("overall_cgpa", "N.A.")
                         overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
                         
                         raw_semesters = data.get("semesters", [])
-                        normalized_semesters = []
                         for sem in raw_semesters:
                             if not isinstance(sem, dict): continue
                             raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
@@ -390,23 +405,63 @@ async def upload_marksheet(
                                 "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
                             })
                     except Exception as ai_err:
-                        if "insufficient_quota" in str(ai_err) or "429" in str(ai_err):
-                            debug_logs.append(f"Page {page_num+1}: OpenAI Quota Exceeded. Falling back to local parser...")
-                            ai_quota_exceeded = True
+                        # If temporary rate limit, wait 2 seconds and retry once
+                        if "429" in str(ai_err) or "rate_limit" in str(ai_err) or "insufficient_quota" in str(ai_err):
+                            time.sleep(2.0)
+                            try:
+                                data = parse_marksheet_with_openai_vision(page)
+                                reg_no = data.get("registration_no")
+                                roll_no = data.get("roll_no", "Unknown")
+                                name = data.get("name", "Unknown Student")
+                                course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "B.A. (Honours) Examination (Under CBCS)")
+                                overall_cgpa = data.get("overall_cgpa", "N.A.")
+                                overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
+                                
+                                raw_semesters = data.get("semesters", [])
+                                for sem in raw_semesters:
+                                    if not isinstance(sem, dict): continue
+                                    raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
+                                    raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
+                                    if not raw_s: continue
+
+                                    normalized_semesters.append({
+                                        "semester": raw_s,
+                                        "year": str(sem.get("year") or sem.get("exam_year") or "").strip(),
+                                        "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
+                                        "marks": str(sem.get("marks") or sem.get("marks_obtained") or sem.get("obtained") or "-").strip(),
+                                        "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
+                                        "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
+                                    })
+                            except Exception as retry_err:
+                                debug_logs.append(f"Page {page_num+1}: OpenAI API Quota Exceeded. Switching to local OCR fallback...")
+                                ai_quota_exceeded = True
                         else:
                             debug_logs.append(f"Page {page_num+1} AI Exception: {ai_err}")
 
-                # --- STRATEGY 2: LOCAL PARSER FALLBACK ---
-                if not ai_client or ai_quota_exceeded:
+                # --- STRATEGY 2: LOCAL PYMUPDF + TESSERACT OCR FALLBACK ---
+                if not ai_client or ai_quota_exceeded or not reg_no:
                     full_text = page.get_text("text") or ""
                     reg_no, match_method = extract_reg_no_bulletproof(full_text)
+
+                    # If native text is empty (scanned page), run Tesseract OCR
+                    if not reg_no and pytesseract:
+                        try:
+                            pix = page.get_pixmap(dpi=110)
+                            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                            gray = img.convert('L')
+                            ocr_text = pytesseract.image_to_string(gray, lang="eng")
+                            if ocr_text:
+                                full_text = ocr_text
+                                reg_no, match_method = extract_reg_no_bulletproof(full_text)
+                        except Exception as ocr_err:
+                            debug_logs.append(f"Page {page_num+1} OCR Exception: {ocr_err}")
+
                     if not reg_no:
-                        debug_logs.append(f"Page {page_num+1}: Local fallback failed to detect Registration No.")
+                        debug_logs.append(f"Page {page_num+1}: Local fallback could not detect Registration No.")
                         continue
 
                     roll_no = extract_roll_no_bulletproof(full_text)
                     name = extract_name_bulletproof(full_text)
-                    
                     course = selected_course if (selected_course and selected_course != "AUTO") else extract_course(full_text)
 
                     rect = page.rect
@@ -488,7 +543,6 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
     
     sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
     
-    # Calculate Passout Year: Year of Semester VI
     passout_year = "Unknown"
     for s in sems:
         if s.semester in ["VI", "6", "VI."] and s.year:
