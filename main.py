@@ -5,6 +5,7 @@ import secrets
 import json
 import base64
 import time
+import gc
 from PIL import Image
 
 # Safe Imports
@@ -81,7 +82,7 @@ class Student(Base):
     course = Column(String, default="Unknown Course")
     overall_cgpa = Column(String) 
     overall_grade = Column(String)
-    remarks = Column(String, default="Qualified") # New Remarks Column
+    remarks = Column(String, default="Qualified")
     
     marksheet_received = Column(Boolean, default=False)
     certificate_received = Column(Boolean, default=False)
@@ -106,64 +107,76 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- OPENAI GPT-4o-MINI VISION PARSER ---
+# --- 2-STEP CROPPED OPENAI GPT-4o-MINI VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
-    pix = page.get_pixmap(dpi=130)
-    img_bytes = pix.tobytes("jpeg")
-    base64_image = base64.b64encode(img_bytes).decode('utf-8')
+    rect = page.rect
 
-    prompt = """
-    You are an expert transcript parser for Calcutta University Grade Sheets. Analyze the provided grade sheet image and return ONLY a valid JSON object in this exact schema:
+    # 1. Full Page Image for Header Details
+    pix_full = page.get_pixmap(dpi=110)
+    img_bytes_full = pix_full.tobytes("jpeg")
+    base64_full = base64.b64encode(img_bytes_full).decode('utf-8')
+
+    prompt_header = """
+    Extract header information from this Calcutta University Marksheet image and return ONLY a JSON object:
+    {
+      "registration_no": "424-1211-0013-21",
+      "roll_no": "212424-11-0004",
+      "name": "BARSHA MALLICK",
+      "course": "B.A. (Honours) Examination (Under CBCS)"
+    }
+    Rules:
+    1. Registration No format: 3-4-4-2 (e.g. 424-1211-0013-21).
+    2. Roll No format: 6-2-4 (e.g. 212424-11-0004).
+    3. Omit 'Semester - VI' from course title.
+    """
+
+    # 2. Cropped Summary Table Image (Y: 46% to 88% height - CROPS OUT ALL TOP SUBJECT TABLES)
+    table_rect = fitz.Rect(0, rect.height * 0.46, rect.width, rect.height * 0.88)
+    pix_table = page.get_pixmap(dpi=150, clip=table_rect)
+    img_bytes_table = pix_table.tobytes("jpeg")
+    base64_table = base64.b64encode(img_bytes_table).decode('utf-8')
+
+    prompt_table = """
+    Analyze ONLY this cropped Semester Summary Table from the bottom of a Calcutta University Grade Sheet and return ONLY a JSON object:
 
     {
-      "registration_no": "424-1211-0069-21",
-      "roll_no": "212424-11-0035",
-      "name": "KHUKUMANI DAS",
-      "course": "B.A. (Honours) Examination (Under CBCS)",
-      "overall_cgpa": "7.311",
+      "overall_cgpa": "7.378",
       "overall_grade": "A",
       "remarks": "Qualified with Honours",
       "semesters": [
-        {"semester": "I", "year": "2021", "full_marks": "400", "marks": "348", "credit": "20", "sgpa": "8.554"},
-        {"semester": "II", "year": "2022", "full_marks": "400", "marks": "289", "credit": "20", "sgpa": "7.240"},
-        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "312", "credit": "26", "sgpa": "6.393"},
-        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "363", "credit": "26", "sgpa": "7.219"},
-        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "289", "credit": "24", "sgpa": "7.186"},
-        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "304", "credit": "24", "sgpa": "7.552"}
+        {"semester": "I", "year": "2021", "full_marks": "400", "marks": "351", "credit": "20", "sgpa": "8.646"},
+        {"semester": "II", "year": "2022", "full_marks": "400", "marks": "285", "credit": "20", "sgpa": "6.978"},
+        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "349", "credit": "26", "sgpa": "7.166"},
+        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "365", "credit": "26", "sgpa": "7.449"},
+        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "274", "credit": "24", "sgpa": "6.815"},
+        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "297", "credit": "24", "sgpa": "7.373"}
       ]
     }
 
-    STRICT CRITICAL RULES:
-    1. SUMMARY TABLE ONLY: Look ONLY at the bottom summary table (columns: Semester, Year, Full Marks, Marks Obtained, Semester Credit, SGPA, Cumulative Credit, CGPA, Letter Grade, Remarks).
-    2. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from top subject course tables (like BNGA-CC13, CC14, DSE-A4, DSE-B4).
-    3. MATCH SEMESTER ROWS EXACTLY FROM SUMMARY TABLE:
-       - Row 'I': Year = 2021, Full Marks = 400, Marks = 348, Credit = 20, SGPA = 8.554
-       - Row 'II': Year = 2022, Full Marks = 400, Marks = 289, Credit = 20, SGPA = 7.240
-       - Row 'III': Year = 2022, Full Marks = 500, Marks = 312, Credit = 26, SGPA = 6.393
-       - Row 'IV': Year = 2023, Full Marks = 500, Marks = 363, Credit = 26, SGPA = 7.219
-       - Row 'V': Year = 2023, Full Marks = 400, Marks = 289, Credit = 24, SGPA = 7.186
-       - Row 'VI': Year = 2024, Full Marks = 400, Marks = 304, Credit = 24, SGPA = 7.552
-    4. OVERALL GRADE: Look ONLY at row 'VI' under column 'Letter Grade' (e.g. A, B+, A+, B, C+, C, D, O). Do NOT read status 'P'.
-    5. OVERALL CGPA: Look ONLY at row 'VI' under column 'CGPA' (e.g. 7.311).
-    6. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
+    CRITICAL RULES:
+    1. Extract EVERY semester row in this summary table (I, II, III, IV, V, VI) with its exact Year, Full Marks, Marks Obtained, Semester Credit, and SGPA.
+    2. Read overall_cgpa (7.378) and overall_grade (A) from row VI.
+    3. Read remarks from the Remarks line (e.g. 'Qualified with Honours' or 'Semester not cleared').
+    4. If 'Semester not cleared' in Remarks, set overall_cgpa to 'N.A.' and overall_grade to 'Fail / Semester Not Cleared'.
     """
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = ai_client.chat.completions.create(
+            # API Call 1: Summary Table Data (Cropped Box)
+            response_table = ai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 response_format={"type": "json_object"},
                 messages=[
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": prompt},
+                            {"type": "text", "text": prompt_table},
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                    "url": f"data:image/jpeg;base64,{base64_table}",
                                     "detail": "high"
                                 }
                             }
@@ -171,12 +184,44 @@ def parse_marksheet_with_openai_vision(page):
                     }
                 ]
             )
-            result_json = response.choices[0].message.content
-            return json.loads(result_json)
+            table_data = json.loads(response_table.choices[0].message.content)
+
+            # API Call 2: Header Data (Low Detail)
+            response_header = ai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt_header},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_full}",
+                                    "detail": "low"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            )
+            header_data = json.loads(response_header.choices[0].message.content)
+
+            return {
+                "registration_no": header_data.get("registration_no"),
+                "roll_no": header_data.get("roll_no"),
+                "name": header_data.get("name"),
+                "course": header_data.get("course"),
+                "overall_cgpa": table_data.get("overall_cgpa", "N.A."),
+                "overall_grade": table_data.get("overall_grade", "Fail / Semester Not Cleared"),
+                "remarks": table_data.get("remarks", "Qualified with Honours"),
+                "semesters": table_data.get("semesters", [])
+            }
         except Exception as e:
             err_msg = str(e).lower()
             if ("429" in err_msg or "rate" in err_msg or "quota" in err_msg) and attempt < max_retries - 1:
-                time.sleep((attempt + 1) * 4)
+                time.sleep((attempt + 1) * 3)
             else:
                 raise e
 
@@ -309,7 +354,7 @@ def parse_summary_table_local(table_text: str):
 
     return sems, cgpa, grade, remarks
 
-# --- BACKGROUND WORKER ---
+# --- BACKGROUND WORKER FOR LARGE PDFs ---
 
 def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
     db = SessionLocal()
@@ -460,7 +505,7 @@ def get_db():
     try: yield db
     finally: db.close()
 
-# --- SAFE STARTUP DB MIGRATIONS ---
+# --- SAFE STARTUP DB CREATION & MIGRATION ---
 @app.on_event("startup")
 def startup_db_setup():
     try:
