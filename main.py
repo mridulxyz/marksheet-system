@@ -5,6 +5,7 @@ import secrets
 import json
 import base64
 import time
+import gc
 from PIL import Image
 
 # Safe Imports
@@ -18,17 +19,7 @@ try:
 except ImportError:
     openai = None
 
-try:
-    import pdfplumber
-except ImportError:
-    pdfplumber = None
-
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
-
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -84,7 +75,7 @@ class Student(Base):
     
     marksheet_received = Column(Boolean, default=False)
     certificate_received = Column(Boolean, default=False)
-    post_grad_status = Column(String, default="Unemployed")
+    post_grad_status = Column(String, default="Unknown")  # Default initialized as Unknown
     post_grad_details = Column(String, default="") 
     proof_document_path = Column(String, default="") 
     
@@ -105,7 +96,7 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- OPENAI GPT-4o-MINI VISION PARSER (WITH AUTO-RETRY RATE LIMITER) ---
+# --- OPENAI GPT-4o-MINI VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
     pix = page.get_pixmap(dpi=130)
@@ -140,7 +131,6 @@ def parse_marksheet_with_openai_vision(page):
     5. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
     """
 
-    # Auto-retry up to 3 times on 1-minute rate limit spikes
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -168,7 +158,6 @@ def parse_marksheet_with_openai_vision(page):
         except Exception as e:
             err_msg = str(e).lower()
             if ("429" in err_msg or "rate" in err_msg or "quota" in err_msg) and attempt < max_retries - 1:
-                # Sleep 4s on first 429, 8s on second 429 to let rate-limit window reset
                 time.sleep((attempt + 1) * 4)
             else:
                 raise e
@@ -297,77 +286,14 @@ def parse_summary_table_local(table_text: str):
 
     return sems, cgpa, grade
 
-# --- FASTAPI APP SETUP ---
-app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
+# --- ASYNCHRONOUS BACKGROUND WORKER FOR 1000-PAGE PDFs ---
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
-def get_db():
+def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
+    """
+    Executes 1000-page PDF extraction safely in the background.
+    Commits data every 5 pages so UI directory updates live in real-time.
+    """
     db = SessionLocal()
-    try: yield db
-    finally: db.close()
-
-# --- SAFE STARTUP DB CREATION & MIGRATION ---
-@app.on_event("startup")
-def startup_db_setup():
-    try:
-        Base.metadata.create_all(bind=engine)
-        with engine.begin() as conn:
-            if "postgresql" in DATABASE_URL:
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS course VARCHAR DEFAULT 'Unknown Course';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS marksheet_received BOOLEAN DEFAULT FALSE;"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS certificate_received BOOLEAN DEFAULT FALSE;"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_status VARCHAR DEFAULT 'Unemployed';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_details VARCHAR DEFAULT '';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS proof_document_path VARCHAR DEFAULT '';"))
-                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS full_marks VARCHAR DEFAULT '400';"))
-                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS credit VARCHAR DEFAULT '20';"))
-            elif "sqlite" in DATABASE_URL:
-                columns = [row[1] for row in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
-                if columns:
-                    if "course" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN course VARCHAR DEFAULT 'Unknown Course';"))
-                    if "marksheet_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN marksheet_received BOOLEAN DEFAULT 0;"))
-                    if "certificate_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN certificate_received BOOLEAN DEFAULT 0;"))
-                    if "post_grad_status" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_status VARCHAR DEFAULT 'Unemployed';"))
-                    if "post_grad_details" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_details VARCHAR;"))
-                    if "proof_document_path" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN proof_document_path VARCHAR;"))
-                
-                sem_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(semester_records);")).fetchall()]
-                if sem_columns:
-                    if "full_marks" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN full_marks VARCHAR DEFAULT '400';"))
-                    if "credit" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN credit VARCHAR DEFAULT '20';"))
-    except Exception as e:
-        print(f"Startup Migration Note: {e}")
-
-# --- FRONTEND ROUTE ---
-@app.get("/")
-def serve_frontend(username: str = Depends(authenticate_admin)):
-    return FileResponse("index.html")
-
-# --- API ENDPOINTS ---
-
-@app.post("/api/admin/upload-marksheet")
-async def upload_marksheet(
-    file: UploadFile = File(...), 
-    selected_course: str = Form("AUTO"),
-    db: Session = Depends(get_db), 
-    user: str = Depends(authenticate_admin)
-):
-    temp_pdf_path = f"temp_{file.filename}"
-    with open(temp_pdf_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    extracted_count = 0
-    debug_logs = []
-    
     try:
         doc = fitz.open(temp_pdf_path) if fitz else []
         ai_quota_exceeded = False
@@ -375,22 +301,19 @@ async def upload_marksheet(
         for page_num in range(len(doc)):
             try:
                 page = doc[page_num]
-                
-                # --- STRATEGY 1: OPENAI VISION WITH AUTO-RETRY RATE-LIMITER ---
                 reg_no = None
                 normalized_semesters = []
                 
+                # --- STRATEGY 1: OPENAI VISION ---
                 if ai_client and not ai_quota_exceeded:
                     try:
-                        # 0.4s pause between pages prevents hitting OpenAI RPM limits on 100+ page PDFs
                         if page_num > 0:
-                            time.sleep(0.4)
+                            time.sleep(0.3)  # 0.3s rate limit spacer
 
                         data = parse_marksheet_with_openai_vision(page)
 
                         reg_no = data.get("registration_no")
                         if not reg_no or reg_no == "null":
-                            debug_logs.append(f"Page {page_num+1}: Registration Number not found.")
                             continue
 
                         roll_no = data.get("roll_no", "Unknown")
@@ -415,28 +338,14 @@ async def upload_marksheet(
                                 "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
                             })
                     except Exception as ai_err:
-                        debug_logs.append(f"Page {page_num+1} AI Exception: {ai_err}")
+                        if "429" in str(ai_err) or "rate" in str(ai_err) or "quota" in str(ai_err):
+                            ai_quota_exceeded = True
 
-                # --- STRATEGY 2: LOCAL PYMUPDF + TESSERACT OCR FALLBACK ---
+                # --- STRATEGY 2: LOCAL PYMUPDF FALLBACK ---
                 if not ai_client or ai_quota_exceeded or not reg_no:
                     full_text = page.get_text("text") or ""
                     reg_no, match_method = extract_reg_no_bulletproof(full_text)
-
-                    # If native text is empty (scanned page), run Tesseract OCR if available
-                    if not reg_no and pytesseract:
-                        try:
-                            pix = page.get_pixmap(dpi=110)
-                            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                            gray = img.convert('L')
-                            ocr_text = pytesseract.image_to_string(gray, lang="eng")
-                            if ocr_text:
-                                full_text = ocr_text
-                                reg_no, match_method = extract_reg_no_bulletproof(full_text)
-                        except Exception as ocr_err:
-                            debug_logs.append(f"Page {page_num+1} OCR Exception: {ocr_err}")
-
                     if not reg_no:
-                        debug_logs.append(f"Page {page_num+1}: Local fallback could not detect Registration No.")
                         continue
 
                     roll_no = extract_roll_no_bulletproof(full_text)
@@ -491,27 +400,105 @@ async def upload_marksheet(
                             credit=sem["credit"],
                             sgpa=sem["sgpa"]
                         ))
-                        
-                extracted_count += 1
-                method_label = "OpenAI AI Vision" if (ai_client and not ai_quota_exceeded and reg_no) else "Local Fallback"
-                debug_logs.append(f"Page {page_num+1} Success ({method_label}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(normalized_semesters)}")
+
+                # Micro-commit every 5 pages to keep memory low and update UI live
+                if page_num % 5 == 0:
+                    db.commit()
+                    gc.collect()
+
             except Exception as page_err:
                 db.rollback()
-                debug_logs.append(f"Page {page_num+1} Exception: {page_err}")
                 continue
 
         if doc: doc.close()
         db.commit()
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"PDF extraction error: {str(e)}")
+        print(f"Background 1000-page error: {e}")
     finally:
-        if os.path.exists(temp_pdf_path): 
+        db.close()
+        if os.path.exists(temp_pdf_path):
             os.remove(temp_pdf_path)
 
+# --- FASTAPI APP SETUP ---
+app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+def get_db():
+    db = SessionLocal()
+    try: yield db
+    finally: db.close()
+
+# --- SAFE STARTUP DB CREATION & MIGRATION ---
+@app.on_event("startup")
+def startup_db_setup():
+    try:
+        Base.metadata.create_all(bind=engine)
+        with engine.begin() as conn:
+            if "postgresql" in DATABASE_URL:
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS course VARCHAR DEFAULT 'Unknown Course';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS marksheet_received BOOLEAN DEFAULT FALSE;"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS certificate_received BOOLEAN DEFAULT FALSE;"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_status VARCHAR DEFAULT 'Unknown';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_details VARCHAR DEFAULT '';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS proof_document_path VARCHAR DEFAULT '';"))
+                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS full_marks VARCHAR DEFAULT '400';"))
+                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS credit VARCHAR DEFAULT '20';"))
+                conn.execute(text("UPDATE students SET post_grad_status = 'Unknown' WHERE post_grad_status = 'Unemployed';"))
+            elif "sqlite" in DATABASE_URL:
+                columns = [row[1] for row in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
+                if columns:
+                    if "course" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN course VARCHAR DEFAULT 'Unknown Course';"))
+                    if "marksheet_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN marksheet_received BOOLEAN DEFAULT 0;"))
+                    if "certificate_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN certificate_received BOOLEAN DEFAULT 0;"))
+                    if "post_grad_status" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_status VARCHAR DEFAULT 'Unknown';"))
+                    if "post_grad_details" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_details VARCHAR;"))
+                    if "proof_document_path" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN proof_document_path VARCHAR;"))
+                
+                sem_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(semester_records);")).fetchall()]
+                if sem_columns:
+                    if "full_marks" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN full_marks VARCHAR DEFAULT '400';"))
+                    if "credit" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN credit VARCHAR DEFAULT '20';"))
+                conn.execute(text("UPDATE students SET post_grad_status = 'Unknown' WHERE post_grad_status = 'Unemployed';"))
+    except Exception as e:
+        print(f"Startup Migration Note: {e}")
+
+# --- FRONTEND ROUTE ---
+@app.get("/")
+def serve_frontend(username: str = Depends(authenticate_admin)):
+    return FileResponse("index.html")
+
+# --- API ENDPOINTS ---
+
+@app.post("/api/admin/upload-marksheet")
+async def upload_marksheet(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...), 
+    selected_course: str = Form("AUTO"),
+    user: str = Depends(authenticate_admin)
+):
+    temp_pdf_path = f"temp_{secrets.token_hex(4)}_{file.filename}"
+    with open(temp_pdf_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    doc = fitz.open(temp_pdf_path) if fitz else []
+    total_pages = len(doc)
+    doc.close()
+
+    # Trigger background worker for large 1000-page processing
+    background_tasks.add_task(process_large_pdf_in_background, temp_pdf_path, selected_course)
+
     return {
-        "message": f"Successfully extracted {extracted_count} student record(s)!",
-        "debug_logs": debug_logs
+        "message": f"🚀 Successfully started background processing for {total_pages} page(s)! You can open Tab 6 (Student Directory) to see extracted records in real-time."
     }
 
 @app.get("/api/student/{reg_no}")
@@ -539,7 +526,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
             "grade": student.overall_grade,
             "marksheet_received": student.marksheet_received, 
             "certificate_received": student.certificate_received,
-            "status": student.post_grad_status, 
+            "status": student.post_grad_status or "Unknown", 
             "details": student.post_grad_details, 
             "proof": student.proof_document_path
         },
