@@ -5,7 +5,6 @@ import secrets
 import json
 import base64
 import time
-import gc
 from PIL import Image
 
 # Safe Imports
@@ -18,6 +17,16 @@ try:
     import openai
 except ImportError:
     openai = None
+
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
+
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -72,10 +81,11 @@ class Student(Base):
     course = Column(String, default="Unknown Course")
     overall_cgpa = Column(String) 
     overall_grade = Column(String)
+    remarks = Column(String, default="Qualified") # New Remarks Column
     
     marksheet_received = Column(Boolean, default=False)
     certificate_received = Column(Boolean, default=False)
-    post_grad_status = Column(String, default="Unknown")  # Default initialized as Unknown
+    post_grad_status = Column(String, default="Unknown") 
     post_grad_details = Column(String, default="") 
     proof_document_path = Column(String, default="") 
     
@@ -107,28 +117,36 @@ def parse_marksheet_with_openai_vision(page):
     You are an expert transcript parser for Calcutta University Grade Sheets. Analyze the provided grade sheet image and return ONLY a valid JSON object in this exact schema:
 
     {
-      "registration_no": "424-1211-0240-19",
-      "roll_no": "192424-11-0044",
-      "name": "SWAGATA PURKAIT",
+      "registration_no": "424-1211-0069-21",
+      "roll_no": "212424-11-0035",
+      "name": "KHUKUMANI DAS",
       "course": "B.A. (Honours) Examination (Under CBCS)",
-      "overall_cgpa": "6.819",
-      "overall_grade": "B+",
+      "overall_cgpa": "7.311",
+      "overall_grade": "A",
+      "remarks": "Qualified with Honours",
       "semesters": [
-        {"semester": "I", "year": "2019", "full_marks": "400", "marks": "248", "credit": "20", "sgpa": "5.624"},
-        {"semester": "II", "year": "2020", "full_marks": "400", "marks": "310", "credit": "20", "sgpa": "7.705"},
-        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "330", "credit": "26", "sgpa": "6.899"},
-        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "372", "credit": "26", "sgpa": "7.367"},
-        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "263", "credit": "24", "sgpa": "6.527"},
-        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "270", "credit": "24", "sgpa": "6.686"}
+        {"semester": "I", "year": "2021", "full_marks": "400", "marks": "348", "credit": "20", "sgpa": "8.554"},
+        {"semester": "II", "year": "2022", "full_marks": "400", "marks": "289", "credit": "20", "sgpa": "7.240"},
+        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "312", "credit": "26", "sgpa": "6.393"},
+        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "363", "credit": "26", "sgpa": "7.219"},
+        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "289", "credit": "24", "sgpa": "7.186"},
+        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "304", "credit": "24", "sgpa": "7.552"}
       ]
     }
 
     STRICT CRITICAL RULES:
-    1. OVERALL GRADE: Look ONLY at row 'VI' in the bottom summary table under column 'Letter Grade' (e.g. B+, A+, A, B, C+, C, D, O). Do NOT read status 'P' (Passed) or subject grades from top subject tables.
-    2. OVERALL CGPA: Look ONLY at row 'VI' in the bottom summary table under column 'CGPA' (e.g. 6.819).
-    3. SEMESTERS: You MUST extract ALL cleared semester rows (I, II, III, IV, V, VI) from the bottom summary table. Each item in 'semesters' MUST contain: 'semester' (I, II, III, IV, V, VI), 'year', 'full_marks', 'marks', 'credit', 'sgpa'.
-    4. IF SEMESTER NOT CLEARED: If 'Semester not cleared' is printed in Remarks, set 'overall_cgpa': 'N.A.' and 'overall_grade': 'Fail / Semester Not Cleared'.
-    5. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
+    1. SUMMARY TABLE ONLY: Look ONLY at the bottom summary table (columns: Semester, Year, Full Marks, Marks Obtained, Semester Credit, SGPA, Cumulative Credit, CGPA, Letter Grade, Remarks).
+    2. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from top subject course tables (like BNGA-CC13, CC14, DSE-A4, DSE-B4).
+    3. MATCH SEMESTER ROWS EXACTLY FROM SUMMARY TABLE:
+       - Row 'I': Year = 2021, Full Marks = 400, Marks = 348, Credit = 20, SGPA = 8.554
+       - Row 'II': Year = 2022, Full Marks = 400, Marks = 289, Credit = 20, SGPA = 7.240
+       - Row 'III': Year = 2022, Full Marks = 500, Marks = 312, Credit = 26, SGPA = 6.393
+       - Row 'IV': Year = 2023, Full Marks = 500, Marks = 363, Credit = 26, SGPA = 7.219
+       - Row 'V': Year = 2023, Full Marks = 400, Marks = 289, Credit = 24, SGPA = 7.186
+       - Row 'VI': Year = 2024, Full Marks = 400, Marks = 304, Credit = 24, SGPA = 7.552
+    4. OVERALL GRADE: Look ONLY at row 'VI' under column 'Letter Grade' (e.g. A, B+, A+, B, C+, C, D, O). Do NOT read status 'P'.
+    5. OVERALL CGPA: Look ONLY at row 'VI' under column 'CGPA' (e.g. 7.311).
+    6. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
     """
 
     max_retries = 3
@@ -241,10 +259,15 @@ def parse_summary_table_local(table_text: str):
     sems = []
     cgpa = "N.A."
     grade = "Fail / Semester Not Cleared"
-    if not table_text: return sems, cgpa, grade
+    remarks = "Qualified"
+    if not table_text: return sems, cgpa, grade, remarks
 
     text_clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', table_text)
     is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_clean, re.IGNORECASE))
+
+    rem_match = re.search(r'Remarks\s*[\:\.]*\s*([^\n\r]+)', text_clean, re.IGNORECASE)
+    if rem_match:
+        remarks = rem_match.group(1).strip()
 
     lines = [l.strip() for l in text_clean.splitlines() if l.strip()]
     sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
@@ -284,15 +307,11 @@ def parse_summary_table_local(table_text: str):
         grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
         if grade_m: grade = grade_m.group(1)
 
-    return sems, cgpa, grade
+    return sems, cgpa, grade, remarks
 
-# --- ASYNCHRONOUS BACKGROUND WORKER FOR 1000-PAGE PDFs ---
+# --- BACKGROUND WORKER ---
 
 def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
-    """
-    Executes 1000-page PDF extraction safely in the background.
-    Commits data every 5 pages so UI directory updates live in real-time.
-    """
     db = SessionLocal()
     try:
         doc = fitz.open(temp_pdf_path) if fitz else []
@@ -303,12 +322,13 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                 page = doc[page_num]
                 reg_no = None
                 normalized_semesters = []
+                remarks = "Qualified"
                 
                 # --- STRATEGY 1: OPENAI VISION ---
                 if ai_client and not ai_quota_exceeded:
                     try:
                         if page_num > 0:
-                            time.sleep(0.3)  # 0.3s rate limit spacer
+                            time.sleep(0.3)
 
                         data = parse_marksheet_with_openai_vision(page)
 
@@ -321,6 +341,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "B.A. (Honours) Examination (Under CBCS)")
                         overall_cgpa = data.get("overall_cgpa", "N.A.")
                         overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
+                        remarks = data.get("remarks", "Qualified with Honours")
                         
                         raw_semesters = data.get("semesters", [])
                         for sem in raw_semesters:
@@ -341,7 +362,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         if "429" in str(ai_err) or "rate" in str(ai_err) or "quota" in str(ai_err):
                             ai_quota_exceeded = True
 
-                # --- STRATEGY 2: LOCAL PYMUPDF FALLBACK ---
+                # --- STRATEGY 2: LOCAL FALLBACK ---
                 if not ai_client or ai_quota_exceeded or not reg_no:
                     full_text = page.get_text("text") or ""
                     reg_no, match_method = extract_reg_no_bulletproof(full_text)
@@ -356,7 +377,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
                     table_text = extract_text_rows_from_rect(page, table_rect)
 
-                    normalized_semesters, overall_cgpa, overall_grade = parse_summary_table_local(table_text)
+                    normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -366,6 +387,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     existing_student.course = course
                     existing_student.overall_cgpa = overall_cgpa
                     existing_student.overall_grade = overall_grade
+                    existing_student.remarks = remarks
                     
                     db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
                     for sem in normalized_semesters:
@@ -387,7 +409,8 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         admission_year=admission_year, 
                         course=course, 
                         overall_cgpa=overall_cgpa, 
-                        overall_grade=overall_grade
+                        overall_grade=overall_grade,
+                        remarks=remarks
                     )
                     db.add(student)
                     for sem in normalized_semesters:
@@ -401,7 +424,6 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                             sgpa=sem["sgpa"]
                         ))
 
-                # Micro-commit every 5 pages to keep memory low and update UI live
                 if page_num % 5 == 0:
                     db.commit()
                     gc.collect()
@@ -414,7 +436,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"Background 1000-page error: {e}")
+        print(f"Background PDF error: {e}")
     finally:
         db.close()
         if os.path.exists(temp_pdf_path):
@@ -438,7 +460,7 @@ def get_db():
     try: yield db
     finally: db.close()
 
-# --- SAFE STARTUP DB CREATION & MIGRATION ---
+# --- SAFE STARTUP DB MIGRATIONS ---
 @app.on_event("startup")
 def startup_db_setup():
     try:
@@ -446,6 +468,7 @@ def startup_db_setup():
         with engine.begin() as conn:
             if "postgresql" in DATABASE_URL:
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS course VARCHAR DEFAULT 'Unknown Course';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS remarks VARCHAR DEFAULT 'Qualified';"))
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS marksheet_received BOOLEAN DEFAULT FALSE;"))
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS certificate_received BOOLEAN DEFAULT FALSE;"))
                 conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_status VARCHAR DEFAULT 'Unknown';"))
@@ -458,6 +481,7 @@ def startup_db_setup():
                 columns = [row[1] for row in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
                 if columns:
                     if "course" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN course VARCHAR DEFAULT 'Unknown Course';"))
+                    if "remarks" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN remarks VARCHAR DEFAULT 'Qualified';"))
                     if "marksheet_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN marksheet_received BOOLEAN DEFAULT 0;"))
                     if "certificate_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN certificate_received BOOLEAN DEFAULT 0;"))
                     if "post_grad_status" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_status VARCHAR DEFAULT 'Unknown';"))
@@ -494,11 +518,10 @@ async def upload_marksheet(
     total_pages = len(doc)
     doc.close()
 
-    # Trigger background worker for large 1000-page processing
     background_tasks.add_task(process_large_pdf_in_background, temp_pdf_path, selected_course)
 
     return {
-        "message": f"🚀 Successfully started background processing for {total_pages} page(s)! You can open Tab 6 (Student Directory) to see extracted records in real-time."
+        "message": f"🚀 Successfully started background processing for {total_pages} page(s)! Refresh Tab 6 (Student Directory) to see extracted records in real-time."
     }
 
 @app.get("/api/student/{reg_no}")
@@ -524,6 +547,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
             "course": student.course,
             "cgpa": student.overall_cgpa, 
             "grade": student.overall_grade,
+            "remarks": student.remarks or "Qualified",
             "marksheet_received": student.marksheet_received, 
             "certificate_received": student.certificate_received,
             "status": student.post_grad_status or "Unknown", 
