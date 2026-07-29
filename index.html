@@ -40,6 +40,15 @@
         .tag-yes { background-color: #27ae60; }
         .tag-no { background-color: #e74c3c; }
 
+        .toolbar { display: flex; gap: 15px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 15px; background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #e2e8f0; }
+        .toolbar-group { display: flex; gap: 10px; align-items: center; flex: 1; min-width: 200px; }
+
+        .btn-green { background-color: #27ae60 !important; width: auto !important; padding: 10px 20px !important; }
+        .btn-green:hover { background-color: #1e8449 !important; }
+        .btn-red { background-color: #e74c3c !important; width: auto !important; padding: 10px 20px !important; }
+        .btn-red:hover { background-color: #c0392b !important; }
+        .btn-sm-red { background-color: #e74c3c !important; padding: 5px 10px !important; font-size: 12px !important; width: auto !important; }
+
         .log-box { text-align: left; background: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 5px; margin-top: 15px; font-size: 13px; color: #856404; font-family: monospace; max-height: 200px; overflow-y: auto; }
     </style>
 </head>
@@ -62,11 +71,23 @@
 
     <div class="main-content">
         
-        <!-- 1. UPLOAD SECTION -->
+        <!-- 1. UPLOAD SECTION WITH COURSE SELECTION -->
         <div id="upload" class="section active">
             <h2>Cloud OCR: Extract Marksheets</h2>
             <p>Upload student marksheets PDF to extract academic records into the database.</p>
             
+            <label><b>Select Course for this Upload Batch:</b></label>
+            <select id="uploadCourseSelect">
+                <option value="AUTO">Auto-Detect Course from Marksheet PDF (Default)</option>
+                <option value="B.A. (Honours)">B.A. (Honours)</option>
+                <option value="B.A. (MDC)">B.A. (MDC)</option>
+                <option value="B.Sc. (Honours)">B.Sc. (Honours)</option>
+                <option value="B.Sc. (MDC)">B.Sc. (MDC)</option>
+                <option value="B.Com. (Honours)">B.Com. (Honours)</option>
+                <option value="B.Com. (MDC)">B.Com. (MDC)</option>
+            </select>
+
+            <label><b>Select PDF File:</b></label>
             <input type="file" id="pdfFile" accept="application/pdf">
             <button id="uploadBtn" onclick="uploadPDF()">Upload & Process PDF</button>
             
@@ -192,10 +213,48 @@
             <div id="stats-container"></div>
         </div>
 
-        <!-- 6. STUDENT MASTER DIRECTORY -->
+        <!-- 6. STUDENT MASTER DIRECTORY WITH FILTERS, EXCEL DOWNLOAD, AND DELETE -->
         <div id="directory" class="section">
             <h2>Student Master Directory</h2>
-            <p>Complete record of extracted students stored in database.</p>
+            <p>Filter, export to Excel, or manage student records stored in the database.</p>
+            
+            <!-- TOOLBAR: DROPDOWN FILTERS & ACTION BUTTONS -->
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <label><b>Admission Year:</b></label>
+                    <select id="filterYear" onchange="applyDirectoryFilters()" style="margin:0;">
+                        <option value="ALL">All Admission Years</option>
+                        <option value="2018">2018</option>
+                        <option value="2019">2019</option>
+                        <option value="2020">2020</option>
+                        <option value="2021">2021</option>
+                        <option value="2022">2022</option>
+                        <option value="2023">2023</option>
+                        <option value="2024">2024</option>
+                        <option value="2025">2025</option>
+                        <option value="2026">2026</option>
+                    </select>
+                </div>
+
+                <div class="toolbar-group">
+                    <label><b>Course:</b></label>
+                    <select id="filterCourse" onchange="applyDirectoryFilters()" style="margin:0;">
+                        <option value="ALL">All Courses</option>
+                        <option value="B.A. (Honours)">B.A. (Honours)</option>
+                        <option value="B.A. (MDC)">B.A. (MDC)</option>
+                        <option value="B.Sc. (Honours)">B.Sc. (Honours)</option>
+                        <option value="B.Sc. (MDC)">B.Sc. (MDC)</option>
+                        <option value="B.Com. (Honours)">B.Com. (Honours)</option>
+                        <option value="B.Com. (MDC)">B.Com. (MDC)</option>
+                    </select>
+                </div>
+
+                <div style="display:flex; gap:10px;">
+                    <button onclick="downloadExcel()" class="btn-green">📥 Export Excel (.CSV)</button>
+                    <button onclick="clearAllData()" class="btn-red">🗑️ Clear All Records</button>
+                </div>
+            </div>
+
             <div id="directory-container">
                 <i>Loading directory...</i>
             </div>
@@ -205,6 +264,8 @@
 
     <script>
         let currentLoadedRegNo = "";
+        let allStudentsList = [];
+        let filteredStudentsList = [];
 
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
@@ -213,6 +274,7 @@
             evt.currentTarget.classList.add('active');
         }
 
+        // 1. Upload PDF with Course Selection
         async function uploadPDF() {
             const file = document.getElementById("pdfFile").files[0];
             if (!file) return alert("Select a PDF first.");
@@ -226,6 +288,7 @@
             
             const formData = new FormData();
             formData.append("file", file);
+            formData.append("selected_course", document.getElementById("uploadCourseSelect").value);
 
             try {
                 const res = await fetch(`/api/admin/upload-marksheet`, { method: "POST", body: formData });
@@ -252,6 +315,7 @@
             return await res.json();
         }
 
+        // 2. Fetch Student Profile
         async function fetchStudentProfile() {
             const regNo = document.getElementById("regNoSearch").value.trim();
             if (!regNo) return alert("Enter a Registration Number first.");
@@ -290,6 +354,7 @@
             }
         }
 
+        // 3. Document Issuance
         async function loadDocStatus() {
             const regNo = document.getElementById("docRegNo").value.trim();
             if (!regNo) return alert("Enter a Registration Number.");
@@ -320,6 +385,7 @@
             if(res.ok) document.getElementById("doc-msg").innerText = "✅ Issuance status updated successfully!";
         }
 
+        // 4. Career Status
         async function loadCareerStatus() {
             const regNo = document.getElementById("careerRegNo").value.trim();
             if (!regNo) return alert("Enter a Registration Number.");
@@ -363,6 +429,7 @@
             }
         }
 
+        // 5. Result Statistics
         async function fetchStats() {
             const container = document.getElementById("stats-container");
             container.innerHTML = "<i>Loading statistics...</i>";
@@ -389,50 +456,124 @@
             }
         }
 
+        // 6. Master Directory Table with Filters & Delete
         async function fetchDirectory() {
             const container = document.getElementById("directory-container");
             container.innerHTML = "<i>Loading student directory...</i>";
             try {
                 const res = await fetch("/api/admin/all-students");
-                const students = await res.json();
-                
-                if (students.length === 0) {
-                    container.innerHTML = "<p>No students found in database.</p>";
-                    return;
-                }
-
-                let html = `<table>
-                    <thead>
-                        <tr>
-                            <th>Reg No</th>
-                            <th>Name</th>
-                            <th>Course</th>
-                            <th>CGPA</th>
-                            <th>Grade</th>
-                            <th>Marksheet</th>
-                            <th>Certificate</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>`;
-
-                students.forEach(s => {
-                    html += `<tr>
-                        <td><b>${s.registration_no}</b></td>
-                        <td>${s.name}</td>
-                        <td>${s.course}</td>
-                        <td><b>${s.overall_cgpa}</b></td>
-                        <td><b>${s.overall_grade}</b></td>
-                        <td><span class="status-tag ${s.marksheet_received ? 'tag-yes':'tag-no'}">${s.marksheet_received ? 'ISSUED':'PENDING'}</span></td>
-                        <td><span class="status-tag ${s.certificate_received ? 'tag-yes':'tag-no'}">${s.certificate_received ? 'ISSUED':'PENDING'}</span></td>
-                        <td>${s.post_grad_status}</td>
-                    </tr>`;
-                });
-
-                html += `</tbody></table>`;
-                container.innerHTML = html;
+                allStudentsList = await res.json();
+                applyDirectoryFilters();
             } catch (err) {
                 container.innerHTML = "<p style='color:red;'>Failed to load directory.</p>";
+            }
+        }
+
+        function applyDirectoryFilters() {
+            const selYear = document.getElementById("filterYear").value;
+            const selCourse = document.getElementById("filterCourse").value;
+
+            filteredStudentsList = allStudentsList.filter(s => {
+                const matchYear = (selYear === "ALL") || (s.admission_year === selYear);
+                const matchCourse = (selCourse === "ALL") || (s.course && s.course.includes(selCourse));
+                return matchYear && matchCourse;
+            });
+
+            renderDirectoryTable();
+        }
+
+        function renderDirectoryTable() {
+            const container = document.getElementById("directory-container");
+            if (filteredStudentsList.length === 0) {
+                container.innerHTML = "<p>No matching student records found.</p>";
+                return;
+            }
+
+            let html = `<table>
+                <thead>
+                    <tr>
+                        <th>Reg No</th>
+                        <th>Name</th>
+                        <th>Course</th>
+                        <th>Adm Year</th>
+                        <th>CGPA</th>
+                        <th>Grade</th>
+                        <th>Marksheet</th>
+                        <th>Certificate</th>
+                        <th>Career Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            filteredStudentsList.forEach(s => {
+                html += `<tr>
+                    <td><b>${s.registration_no}</b></td>
+                    <td>${s.name}</td>
+                    <td>${s.course}</td>
+                    <td>${s.admission_year || '-'}</td>
+                    <td><b>${s.overall_cgpa}</b></td>
+                    <td><b>${s.overall_grade}</b></td>
+                    <td><span class="status-tag ${s.marksheet_received ? 'tag-yes':'tag-no'}">${s.marksheet_received ? 'ISSUED':'PENDING'}</span></td>
+                    <td><span class="status-tag ${s.certificate_received ? 'tag-yes':'tag-no'}">${s.certificate_received ? 'ISSUED':'PENDING'}</span></td>
+                    <td>${s.post_grad_status}</td>
+                    <td><button onclick="deleteSingleStudent('${s.registration_no}')" class="btn-sm-red">Delete</button></td>
+                </tr>`;
+            });
+
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+        }
+
+        // Export Filtered Directory to Excel (.CSV)
+        function downloadExcel() {
+            if (!filteredStudentsList || filteredStudentsList.length === 0) {
+                return alert("No student records available to export.");
+            }
+
+            let csv = "Registration No,Name,Roll No,Course,Admission Year,CGPA,Grade,Marksheet Status,Certificate Status,Career Status,Career Details\n";
+
+            filteredStudentsList.forEach(s => {
+                csv += `"${s.registration_no}","${s.name}","${s.roll_no}","${s.course}","${s.admission_year || ''}","${s.overall_cgpa}","${s.overall_grade}","${s.marksheet_received ? 'ISSUED':'PENDING'}","${s.certificate_received ? 'ISSUED':'PENDING'}","${s.post_grad_status}","${s.post_grad_details || ''}"\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `Student_Directory_${new Date().toISOString().slice(0,10)}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // Delete Single Student Record
+        async function deleteSingleStudent(regNo) {
+            if (!confirm(`Are you sure you want to delete student record ${regNo}?`)) return;
+
+            try {
+                const res = await fetch(`/api/admin/student/${regNo}`, { method: "DELETE" });
+                if (res.ok) {
+                    alert("Student record deleted.");
+                    fetchDirectory();
+                } else throw new Error();
+            } catch (err) {
+                alert("Failed to delete student record.");
+            }
+        }
+
+        // Clear All Student Directory Records
+        async function clearAllData() {
+            if (!confirm("⚠️ DANGER: Are you sure you want to DELETE ALL student records from the database? This action cannot be undone!")) return;
+
+            try {
+                const res = await fetch(`/api/admin/clear-all-students`, { method: "POST" });
+                if (res.ok) {
+                    alert("All student records cleared successfully!");
+                    fetchDirectory();
+                } else throw new Error();
+            } catch (err) {
+                alert("Failed to clear database.");
             }
         }
     </script>
