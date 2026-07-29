@@ -3,7 +3,6 @@ uvicorn
 sqlalchemy
 psycopg2-binary
 PyMuPDF
-opencv-python-headless
-pytesseract
+openai
 pillow
 python-multipart
