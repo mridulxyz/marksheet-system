@@ -105,7 +105,7 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- OPENAI GPT-4o-MINI VISION PARSER ---
+# --- OPENAI GPT-4o-MINI VISION PARSER (WITH AUTO-RETRY RATE LIMITER) ---
 
 def parse_marksheet_with_openai_vision(page):
     pix = page.get_pixmap(dpi=130)
@@ -140,28 +140,38 @@ def parse_marksheet_with_openai_vision(page):
     5. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
     """
 
-    response = ai_client.chat.completions.create(
-        model="gpt-4o-mini",
-        response_format={"type": "json_object"},
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
+    # Auto-retry up to 3 times on 1-minute rate limit spikes
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = ai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                messages=[
                     {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}",
-                            "detail": "high"
-                        }
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                    "detail": "high"
+                                }
+                            }
+                        ]
                     }
                 ]
-            }
-        ]
-    )
-
-    result_json = response.choices[0].message.content
-    return json.loads(result_json)
+            )
+            result_json = response.choices[0].message.content
+            return json.loads(result_json)
+        except Exception as e:
+            err_msg = str(e).lower()
+            if ("429" in err_msg or "rate" in err_msg or "quota" in err_msg) and attempt < max_retries - 1:
+                # Sleep 4s on first 429, 8s on second 429 to let rate-limit window reset
+                time.sleep((attempt + 1) * 4)
+            else:
+                raise e
 
 # --- LOCAL FALLBACK PARSER ---
 
@@ -366,13 +376,13 @@ async def upload_marksheet(
             try:
                 page = doc[page_num]
                 
-                # --- STRATEGY 1: OPENAI VISION WITH RATE LIMIT RETRY ---
+                # --- STRATEGY 1: OPENAI VISION WITH AUTO-RETRY RATE-LIMITER ---
                 reg_no = None
                 normalized_semesters = []
                 
                 if ai_client and not ai_quota_exceeded:
                     try:
-                        # 0.4s pause between pages prevents hitting OpenAI RPM rate limits on bulk 100+ page PDFs
+                        # 0.4s pause between pages prevents hitting OpenAI RPM limits on 100+ page PDFs
                         if page_num > 0:
                             time.sleep(0.4)
 
@@ -405,45 +415,14 @@ async def upload_marksheet(
                                 "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
                             })
                     except Exception as ai_err:
-                        # If temporary rate limit, wait 2 seconds and retry once
-                        if "429" in str(ai_err) or "rate_limit" in str(ai_err) or "insufficient_quota" in str(ai_err):
-                            time.sleep(2.0)
-                            try:
-                                data = parse_marksheet_with_openai_vision(page)
-                                reg_no = data.get("registration_no")
-                                roll_no = data.get("roll_no", "Unknown")
-                                name = data.get("name", "Unknown Student")
-                                course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "B.A. (Honours) Examination (Under CBCS)")
-                                overall_cgpa = data.get("overall_cgpa", "N.A.")
-                                overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
-                                
-                                raw_semesters = data.get("semesters", [])
-                                for sem in raw_semesters:
-                                    if not isinstance(sem, dict): continue
-                                    raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
-                                    raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
-                                    if not raw_s: continue
-
-                                    normalized_semesters.append({
-                                        "semester": raw_s,
-                                        "year": str(sem.get("year") or sem.get("exam_year") or "").strip(),
-                                        "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
-                                        "marks": str(sem.get("marks") or sem.get("marks_obtained") or sem.get("obtained") or "-").strip(),
-                                        "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
-                                        "sgpa": str(sem.get("sgpa") or sem.get("gpa") or "N.A.").strip()
-                                    })
-                            except Exception as retry_err:
-                                debug_logs.append(f"Page {page_num+1}: OpenAI API Quota Exceeded. Switching to local OCR fallback...")
-                                ai_quota_exceeded = True
-                        else:
-                            debug_logs.append(f"Page {page_num+1} AI Exception: {ai_err}")
+                        debug_logs.append(f"Page {page_num+1} AI Exception: {ai_err}")
 
                 # --- STRATEGY 2: LOCAL PYMUPDF + TESSERACT OCR FALLBACK ---
                 if not ai_client or ai_quota_exceeded or not reg_no:
                     full_text = page.get_text("text") or ""
                     reg_no, match_method = extract_reg_no_bulletproof(full_text)
 
-                    # If native text is empty (scanned page), run Tesseract OCR
+                    # If native text is empty (scanned page), run Tesseract OCR if available
                     if not reg_no and pytesseract:
                         try:
                             pix = page.get_pixmap(dpi=110)
@@ -514,7 +493,7 @@ async def upload_marksheet(
                         ))
                         
                 extracted_count += 1
-                method_label = "OpenAI AI Vision" if (ai_client and not ai_quota_exceeded) else "Local Fallback"
+                method_label = "OpenAI AI Vision" if (ai_client and not ai_quota_exceeded and reg_no) else "Local Fallback"
                 debug_logs.append(f"Page {page_num+1} Success ({method_label}): Reg={reg_no}, Name={name}, Roll={roll_no}, CGPA={overall_cgpa}, Grade={overall_grade}, Sems={len(normalized_semesters)}")
             except Exception as page_err:
                 db.rollback()
