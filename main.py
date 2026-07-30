@@ -24,6 +24,11 @@ try:
 except ImportError:
     pdfplumber = None
 
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None
+
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -33,12 +38,14 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
-# --- SECURITY (ADMIN LOGIN) ---
+# --- SECURITY (MULTI-USER AUTHENTICATION) ---
 security = HTTPBasic()
 
+# Admin Credentials
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cuadmin123")
 
+# Normal Users Credentials (All permissions EXCEPT delete)
 USER1_USERNAME = os.getenv("USER1_USERNAME", "staff1")
 USER1_PASSWORD = os.getenv("USER1_PASSWORD", "staff123")
 
@@ -49,12 +56,15 @@ def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
     username = credentials.username
     password = credentials.password
 
+    # Check Admin
     if secrets.compare_digest(username, ADMIN_USERNAME) and secrets.compare_digest(password, ADMIN_PASSWORD):
         return {"username": username, "role": "admin"}
 
+    # Check Normal User 1
     if secrets.compare_digest(username, USER1_USERNAME) and secrets.compare_digest(password, USER1_PASSWORD):
         return {"username": username, "role": "user"}
 
+    # Check Normal User 2
     if secrets.compare_digest(username, USER2_USERNAME) and secrets.compare_digest(password, USER2_PASSWORD):
         return {"username": username, "role": "user"}
 
@@ -305,7 +315,6 @@ def parse_summary_table_local(table_text: str):
     if rem_match:
         remarks = rem_match.group(1).strip()
 
-    # IF FAILED, DO NOT EXTRACT SEMESTERS
     if is_not_cleared:
         return [], "N.A.", "Fail / Semester Not Cleared", remarks
 
@@ -397,8 +406,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         overall_cgpa = data.get("overall_cgpa", "N.A.")
                         overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
 
-                        # FOR FAILED / UNCLEARED CANDIDATES: DO NOT STORE SEMESTERS!
-                        if "not cleared" in str(remarks).lower() or "fail" in str(overall_grade).lower():
+                        if "not cleared" in str(remarks).lower() or overall_grade.lower() in ["none", "null", "n.a.", ""]:
                             overall_cgpa = "N.A."
                             overall_grade = "Fail / Semester Not Cleared"
                             normalized_semesters = []
@@ -589,7 +597,7 @@ def startup_db_setup():
 
 # --- FRONTEND ROUTE ---
 @app.get("/")
-def serve_frontend(username: str = Depends(authenticate_admin)):
+def serve_frontend(user: dict = Depends(get_current_user)):
     return FileResponse("index.html")
 
 # --- AUTH INFO ENDPOINT ---
