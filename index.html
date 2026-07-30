@@ -297,7 +297,27 @@
                 </div>
             </div>
 
-            <!-- PIE CHART CONTAINER -->
+            <!-- METRIC CARDS -->
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:12px; color:#64748b; font-weight:700;">TOTAL MATCHED</div>
+                    <h3 id="statTotalStudents" style="font-size:24px; color:#2563eb; margin-top:5px;">0</h3>
+                </div>
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:12px; color:#64748b; font-weight:700;">PASSED</div>
+                    <h3 id="statPassedStudents" style="font-size:24px; color:#10b981; margin-top:5px;">0</h3>
+                </div>
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:12px; color:#64748b; font-weight:700;">FAILED</div>
+                    <h3 id="statFailedStudents" style="font-size:24px; color:#ef4444; margin-top:5px;">0</h3>
+                </div>
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:15px; text-align:center;">
+                    <div style="font-size:12px; color:#64748b; font-weight:700;">PASS %</div>
+                    <h3 id="statPassPercentage" style="font-size:24px; color:#8b5cf6; margin-top:5px;">0%</h3>
+                </div>
+            </div>
+
+            <!-- CHARTS GRID -->
             <div class="chart-grid">
                 <div class="chart-box">
                     <h3>Overall Grade Distribution</h3>
@@ -493,7 +513,7 @@
                 setElementText("s-cgpa", data.student.cgpa);
                 setElementText("s-remarks", data.student.remarks || "Qualified");
 
-                // HIDE SEMESTER TABLE FOR FAILED / UNCLEARED CANDIDATES
+                // HIDE SEMESTER TABLE FOR FAILED CANDIDATES
                 const semTableContainer = document.getElementById("sem-table-container");
                 const failedNote = document.getElementById("failed-candidate-note");
 
@@ -570,7 +590,6 @@
                 if (el) el.style.display = textType;
             });
 
-            // Show table in edit mode
             const semTableContainer = document.getElementById("sem-table-container");
             const failedNote = document.getElementById("failed-candidate-note");
             if (isEditMode) {
@@ -763,7 +782,7 @@
             }
         }
 
-        // 5. Result Statistics & Interactive Pie Charts
+        // 5. Result Statistics & Interactive Pie Charts (FIXED JS SYNTAX)
         async function renderCharts() {
             try {
                 const res = await fetch("/api/admin/all-students");
@@ -798,6 +817,7 @@
                     const g = s.overall_grade || "Fail";
                     gradeCounts[g] = (gradeCounts[g] || 0) + 1;
 
+                    // FIXED JS SYNTAX HERE: || instead of Python or
                     if (g.includes("Fail") || g.includes("Not Cleared")) {
                         failedCount++;
                     } else {
@@ -841,6 +861,14 @@
                     },
                     options: { responsive: true, maintainAspectRatio: false }
                 });
+
+                const statsContainer = document.getElementById("stats-container");
+                if (statsContainer) {
+                    statsContainer.innerHTML = `<div class="card">
+                        <h3>Summary Statistics</h3>
+                        <p><b>Total Students Matched:</b> ${filtered.length}</p>
+                    </div>`;
+                }
 
             } catch (err) {
                 console.error(err);
