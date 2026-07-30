@@ -24,6 +24,11 @@ try:
 except ImportError:
     pdfplumber = None
 
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None
+
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -33,14 +38,12 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
-# --- MULTI-USER AUTHENTICATION & ROLES ---
+# --- SECURITY (ADMIN LOGIN) ---
 security = HTTPBasic()
 
-# Admin Credentials
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cuadmin123")
 
-# Normal Users Credentials (All permissions EXCEPT delete)
 USER1_USERNAME = os.getenv("USER1_USERNAME", "staff1")
 USER1_PASSWORD = os.getenv("USER1_PASSWORD", "staff123")
 
@@ -51,15 +54,12 @@ def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
     username = credentials.username
     password = credentials.password
 
-    # Check Admin
     if secrets.compare_digest(username, ADMIN_USERNAME) and secrets.compare_digest(password, ADMIN_PASSWORD):
         return {"username": username, "role": "admin"}
 
-    # Check Normal User 1
     if secrets.compare_digest(username, USER1_USERNAME) and secrets.compare_digest(password, USER1_PASSWORD):
         return {"username": username, "role": "user"}
 
-    # Check Normal User 2
     if secrets.compare_digest(username, USER2_USERNAME) and secrets.compare_digest(password, USER2_PASSWORD):
         return {"username": username, "role": "user"}
 
@@ -801,3 +801,9 @@ def get_grade_stats(db: Session = Depends(get_db), user: dict = Depends(get_curr
 @app.get("/api/admin/all-students")
 def get_all_students(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     return db.query(Student).all()
+
+# --- ENTRY POINT FOR UVI_CORN ---
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
