@@ -24,11 +24,6 @@ try:
 except ImportError:
     pdfplumber = None
 
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
-
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -38,7 +33,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
-# --- SECURITY (MULTI-USER AUTHENTICATION) ---
+# --- MULTI-USER AUTHENTICATION & ROLES ---
 security = HTTPBasic()
 
 # Admin Credentials
@@ -150,7 +145,7 @@ bg_upload_status = {
     "filename": ""
 }
 
-# --- FLAGSHIP GPT-4o VISION PARSER ---
+# --- UNTOUCHED OPENAI GPT-4o VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
     pix = page.get_pixmap(dpi=200)
@@ -179,7 +174,7 @@ def parse_marksheet_with_openai_vision(page):
       ]
     }
 
-    CRITICAL EXTRACTION RULES:
+    VERIFICATION RULES FOR 100% ACCURACY:
     1. SUMMARY TABLE LOCATION: Look at the table near the bottom labeled 'Semester', 'Year', 'Full Marks', 'Marks Obtained', 'Semester Credit', 'SGPA', 'Cumulative Credit', 'CGPA', 'Letter Grade', 'Remarks'.
     2. GRADED CANDIDATES ONLY: If the student PASSED (Remarks = 'Qualified' or 'Qualified with Honours'):
        - Extract ALL semester rows (I, II, III, IV, V, VI) with exact Year, Full Marks, Marks Obtained, Credit, SGPA.
@@ -190,7 +185,7 @@ def parse_marksheet_with_openai_vision(page):
        - Set "overall_grade": "Fail / Semester Not Cleared"
        - Set "semesters": [] (DO NOT EXTRACT ANY SEMESTER BREAKDOWN ROWS FOR FAILED CANDIDATES!).
     4. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from top course component tables (e.g. BNGA-CC13, CC14, DSE-A4, DSE-B4).
-    5. SUBJECT CODE: Extract subject code prefix from course code (e.g. 'BNGA' from BNGA-CC13 or 'ENGG' from ENGG-CC13).
+    5. SUBJECT CODE: Extract subject code prefix from course code (e.g. 'BNGA' from BNGA-CC13 or 'ENGG' from ENGG-CC13). Default to 'BNGA' if not clearly stated.
     6. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
     7. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
     """
