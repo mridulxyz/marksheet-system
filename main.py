@@ -107,62 +107,95 @@ class SemesterRecord(Base):
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- FLAGSHIP OPENAI GPT-4o VISION PARSER (100% PRECISION) ---
+# --- ANCHOR SEARCH FOR DYNAMIC CROP ---
+
+def get_summary_table_crop_rect(page):
+    rect = page.rect
+    # Search specifically for summary table header anchor "Cumulative Credit"
+    hits = page.search_for("Cumulative Credit") or page.search_for("Semester Credit") or page.search_for("Full Marks")
+    
+    if hits:
+        # Find the hit located in the lower half of the page
+        summary_hits = [h for h in hits if h.y0 > rect.height * 0.45]
+        if summary_hits:
+            y0 = max(0, summary_hits[0].y0 - 20) # Start crop 20px above summary table header
+            y1 = min(rect.height, y0 + (rect.height * 0.35)) # Crop 35% height down
+            return fitz.Rect(0, y0, rect.width, y1)
+
+    # Fallback crop if anchor search returned no hits
+    return fitz.Rect(0, rect.height * 0.56, rect.width, rect.height * 0.88)
+
+# --- STRICT OPENAI GPT-4o-MINI VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
-    # 200 DPI High-Definition Render (Full Page - No Cropping to prevent row cutoff)
-    pix = page.get_pixmap(dpi=200)
-    img_bytes = pix.tobytes("jpeg")
-    base64_image = base64.b64encode(img_bytes).decode('utf-8')
+    rect = page.rect
 
-    prompt = """
-    You are an expert academic transcript verifier. Analyze this Calcutta University Grade Sheet image with 100% precision and return ONLY a valid JSON object matching this exact schema:
+    # 1. Full Page Image for Header Details (Reg No, Roll No, Name, Course)
+    pix_full = page.get_pixmap(dpi=120)
+    img_bytes_full = pix_full.tobytes("jpeg")
+    base64_full = base64.b64encode(img_bytes_full).decode('utf-8')
+
+    prompt_header = """
+    Extract header information from this Calcutta University Marksheet image and return ONLY a JSON object:
+    {
+      "registration_no": "424-1215-0072-20",
+      "roll_no": "202424-11-0427",
+      "name": "TANISHA PARVIN",
+      "course": "B.A. (Honours) Examination (Under CBCS)"
+    }
+    STRICT RULES:
+    1. Registration No format: 3-4-4-2 (e.g. 424-1215-0072-20).
+    2. Roll No format: 6-2-4 (e.g. 202424-11-0427). Double-check digits with 100% precision.
+    3. Omit 'Semester - VI' or 'Semester - I' from course title.
+    """
+
+    # 2. Dynamic Anchor Cropped Summary Table Image (Crops EXCLUSIVELY the summary table)
+    table_rect = get_summary_table_crop_rect(page)
+    pix_table = page.get_pixmap(dpi=160, clip=table_rect)
+    img_bytes_table = pix_table.tobytes("jpeg")
+    base64_table = base64.b64encode(img_bytes_table).decode('utf-8')
+
+    prompt_table = """
+    Analyze ONLY this cropped Semester Summary Table from the bottom of a Calcutta University Grade Sheet and return ONLY a JSON object:
 
     {
-      "registration_no": "424-1211-0240-19",
-      "roll_no": "192424-11-0044",
-      "name": "SWAGATA PURKAIT",
-      "course": "B.A. (Honours) Examination (Under CBCS)",
-      "overall_cgpa": "6.819",
-      "overall_grade": "B+",
+      "overall_cgpa": "7.378",
+      "overall_grade": "A",
       "remarks": "Qualified with Honours",
       "semesters": [
-        {"semester": "I", "year": "2019", "full_marks": "400", "marks": "248", "credit": "20", "sgpa": "5.624"},
-        {"semester": "II", "year": "2020", "full_marks": "400", "marks": "310", "credit": "20", "sgpa": "7.705"},
-        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "330", "credit": "26", "sgpa": "6.899"},
-        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "372", "credit": "26", "sgpa": "7.367"},
-        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "263", "credit": "24", "sgpa": "6.527"},
-        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "270", "credit": "24", "sgpa": "6.686"}
+        {"semester": "I", "year": "2021", "full_marks": "400", "marks": "351", "credit": "20", "sgpa": "8.646"},
+        {"semester": "II", "year": "2022", "full_marks": "400", "marks": "285", "credit": "20", "sgpa": "6.978"},
+        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "349", "credit": "26", "sgpa": "7.166"},
+        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "365", "credit": "26", "sgpa": "7.449"},
+        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "274", "credit": "24", "sgpa": "6.815"},
+        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "297", "credit": "24", "sgpa": "7.373"}
       ]
     }
 
-    VERIFICATION RULES FOR 100% ACCURACY:
-    1. SUMMARY TABLE LOCATION: Look at the table near the bottom labeled 'Semester', 'Year', 'Full Marks', 'Marks Obtained', 'Semester Credit', 'SGPA', 'Cumulative Credit', 'CGPA', 'Letter Grade', 'Remarks'.
-    2. DO NOT SKIP ANY SEMESTER ROWS: Carefully read every row from Semester I to Semester VI. Do NOT omit Semester IV or any other row if present in the summary table!
-    3. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from the course component tables above (e.g. BNGA-CC13, CC14, DSE-A4, DSE-B4). Read ONLY from the summary table at the bottom.
-    4. OVERALL GRADE: Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI' of the bottom summary table (e.g. B+, A+, A, B, C+, C, D, O). Never read words like 'Good' or status 'P'.
-    5. OVERALL CGPA: Read 'overall_cgpa' ONLY from column 'CGPA' in row 'VI' of the bottom summary table (e.g. 6.819).
-    6. IF SEMESTER NOT CLEARED: If 'Semester not cleared' is printed in Remarks, set 'overall_cgpa': 'N.A.' and 'overall_grade': 'Fail / Semester Not Cleared'.
-    7. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
-    8. COURSE TITLE: Omit 'Semester - VI' from course title.
+    STRICT CRITICAL RULES:
+    1. ONLY PRESENT SEMESTERS: Extract ONLY the semester rows that contain data in this summary table. Do NOT create dummy entries for empty/blank semester rows.
+    2. LETTER GRADE RULE: Read 'overall_grade' ONLY from row 'VI' under column 'Letter Grade' (e.g. A, B+, A+, B, C+, C, D, O). Never read words like 'Good' or status 'P'.
+    3. OVERALL CGPA: Read 'overall_cgpa' ONLY from row 'VI' under column 'CGPA' (e.g. 7.378).
+    4. IF SEMESTER NOT CLEARED: If 'Semester not cleared' is printed in Remarks, set overall_cgpa to 'N.A.' and overall_grade to 'Fail / Semester Not Cleared'.
+    5. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
     """
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # Using GPT-4o Flagship Model for 100% Table Accuracy
-            response = ai_client.chat.completions.create(
-                model="gpt-4o",
+            # API Call 1: Summary Table Data (Cropped Box)
+            response_table = ai_client.chat.completions.create(
+                model="gpt-4o-mini",
                 response_format={"type": "json_object"},
                 messages=[
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": prompt},
+                            {"type": "text", "text": prompt_table},
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                    "url": f"data:image/jpeg;base64,{base64_table}",
                                     "detail": "high"
                                 }
                             }
@@ -170,8 +203,40 @@ def parse_marksheet_with_openai_vision(page):
                     }
                 ]
             )
-            result_json = response.choices[0].message.content
-            return json.loads(result_json)
+            table_data = json.loads(response_table.choices[0].message.content)
+
+            # API Call 2: Header Data
+            response_header = ai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt_header},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_full}",
+                                    "detail": "high"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            )
+            header_data = json.loads(response_header.choices[0].message.content)
+
+            return {
+                "registration_no": header_data.get("registration_no"),
+                "roll_no": header_data.get("roll_no"),
+                "name": header_data.get("name"),
+                "course": header_data.get("course"),
+                "overall_cgpa": table_data.get("overall_cgpa", "N.A."),
+                "overall_grade": table_data.get("overall_grade", "Fail / Semester Not Cleared"),
+                "remarks": table_data.get("remarks", "Qualified with Honours"),
+                "semesters": table_data.get("semesters", [])
+            }
         except Exception as e:
             err_msg = str(e).lower()
             if ("429" in err_msg or "rate" in err_msg or "quota" in err_msg) and attempt < max_retries - 1:
@@ -323,7 +388,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                 normalized_semesters = []
                 remarks = "Qualified"
                 
-                # --- STRATEGY 1: OPENAI VISION (GPT-4o) ---
+                # --- STRATEGY 1: OPENAI VISION ---
                 if ai_client and not ai_quota_exceeded:
                     try:
                         if page_num > 0:
@@ -387,7 +452,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     course = selected_course if (selected_course and selected_course != "AUTO") else extract_course(full_text)
 
                     rect = page.rect
-                    table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
+                    table_rect = get_summary_table_crop_rect(page)
                     table_text = extract_text_rows_from_rect(page, table_rect)
 
                     normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
