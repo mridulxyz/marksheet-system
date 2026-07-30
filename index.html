@@ -141,6 +141,7 @@
                     <div><b>Subject Code:</b> <span id="s-subject"></span> <input type="text" id="edit-subject" style="display:none;"></div>
                     <div><b>Admission Year:</b> <span id="s-admin-year"></span></div>
                     <div><b>Passout Year:</b> <span id="s-pass-year"></span></div>
+                    <div><b>Final CGPA:</b> <span id="s-cgpa"></span></div>
                     <div><b>Remarks Statement:</b> <span id="s-remarks" style="color:#27ae60; font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
                 </div>
 
@@ -166,7 +167,7 @@
             </div>
         </div>
 
-        <!-- 3. DOCUMENT ISSUANCE (WITH DATES & ISSUED BY DROPDOWN) -->
+        <!-- 3. DOCUMENT ISSUANCE -->
         <div id="doc-issuance" class="section">
             <h2>Document Issuance Tracker</h2>
             <p>Manage marksheets and degree certificates issued with dates and employee names.</p>
@@ -205,7 +206,7 @@
             </div>
         </div>
 
-        <!-- 4. CAREER & PLACEMENTS (WITH SUBJECT FIELD) -->
+        <!-- 4. CAREER & PLACEMENTS -->
         <div id="career-status" class="section">
             <h2>Career & Post-Graduation Profile</h2>
             <p>Track employment, higher study enrolments, subject codes, and uploaded proof documents.</p>
@@ -224,7 +225,7 @@
 
                 <label><b>Current Status:</b></label>
                 <select id="postGradStatus">
-                    <option value="Unknown">Unknown</option>
+                    <option value="Unknown">Unknown/others</option>
                     <option value="Looking for Job">Looking for Job</option>
                     <option value="Private Job">Private Job</option>
                     <option value="Govt Job">Government Job</option>
@@ -232,7 +233,7 @@
                     <option value="Higher Study">Higher Study (M.A, M.Sc, etc.)</option>
                 </select>
 
-                <label><b>Job / Institution Details:</b></label>
+                <label><b>Job / Institution Details/Others:</b></label>
                 <input type="text" id="postGradDetails" placeholder="e.g. TCS / Calcutta University">
 
                 <label><b>Upload Proof (Offer Letter / ID Card / Admission Slip):</b></label>
@@ -306,10 +307,10 @@
             <div id="stats-container" style="margin-top:20px;"></div>
         </div>
 
-        <!-- 6. STUDENT MASTER DIRECTORY WITH SEARCH & PROOF ATTACHMENTS -->
+        <!-- 6. STUDENT MASTER DIRECTORY -->
         <div id="directory" class="section">
             <h2>Student Master Directory</h2>
-            <p>Search, filter, export to Excel, or manage student records stored in the database.</p>
+            <p>Filter, export to Excel, or manage student records stored in the database.</p>
 
             <!-- LIVE SEARCH BAR -->
             <div style="margin-bottom: 15px;">
@@ -369,6 +370,17 @@
         let careerChartInstance = null;
         let currentUserRole = "user";
 
+        // SAFE DOM SETTER HELPERS (PREVENTS CANNOT SET PROPERTIES OF NULL FOREVER)
+        function setElementText(id, textVal) {
+            const el = document.getElementById(id);
+            if (el) el.innerText = (textVal !== undefined && textVal !== null) ? textVal : "-";
+        }
+
+        function setElementValue(id, val) {
+            const el = document.getElementById(id);
+            if (el) el.value = (val !== undefined && val !== null) ? val : "";
+        }
+
         // Check Login User Role on Page Load
         window.onload = async function() {
             try {
@@ -376,9 +388,8 @@
                 if (res.ok) {
                     const data = await res.json();
                     currentUserRole = data.role;
-                    document.getElementById("userBadge").innerText = `User: ${data.username} (${data.role.toUpperCase()})`;
+                    setElementText("userBadge", `User: ${data.username} (${data.role.toUpperCase()})`);
                     
-                    // Hide Clear All button for non-admin users
                     if (currentUserRole !== "admin") {
                         const clearBtn = document.getElementById("clearAllBtn");
                         if (clearBtn) clearBtn.style.display = "none";
@@ -451,7 +462,7 @@
             return await res.json();
         }
 
-        // 2. Fetch & Edit Student Profile
+        // 2. Fetch & Edit Student Profile (Safe DOM Setters)
         async function fetchStudentProfile() {
             const regNo = document.getElementById("regNoSearch").value.trim();
             if (!regNo) return alert("Enter a Registration Number first.");
@@ -460,29 +471,37 @@
                 const data = await getStudentData(regNo);
                 currentLoadedRegNo = data.student.reg_no;
                 isEditMode = false;
-                document.getElementById("toggleEditBtn").innerText = "✏️ Edit Profile & Marks";
-                document.getElementById("save-edit-btn-container").style.display = "none";
+                
+                setElementText("toggleEditBtn", "✏️ Edit Profile & Marks");
+                const saveBtnContainer = document.getElementById("save-edit-btn-container");
+                if (saveBtnContainer) saveBtnContainer.style.display = "none";
 
-                document.getElementById("s-name").innerText = data.student.name;
-                document.getElementById("s-cgpa-banner").innerText = data.student.cgpa;
-                document.getElementById("s-grade-banner").innerText = data.student.grade;
+                // Safe text setters
+                setElementText("s-name", data.student.name);
+                setElementText("s-cgpa-banner", data.student.cgpa);
+                setElementText("s-grade-banner", data.student.grade);
 
-                document.getElementById("s-reg").innerText = data.student.reg_no;
-                document.getElementById("s-roll").innerText = data.student.roll_no;
-                document.getElementById("s-course").innerText = data.student.course;
-                document.getElementById("s-subject").innerText = data.student.subject || "BNGA";
-                document.getElementById("s-admin-year").innerText = data.student.admission_year;
-                document.getElementById("s-pass-year").innerText = data.student.passout_year;
-                document.getElementById("s-cgpa").innerText = data.student.cgpa;
-                document.getElementById("s-remarks").innerText = data.student.remarks || "Qualified";
+                setElementText("s-reg", data.student.reg_no);
+                setElementText("s-roll", data.student.roll_no);
+                setElementText("s-course", data.student.course);
+                setElementText("s-subject", data.student.subject || "BNGA");
+                setElementText("s-admin-year", data.student.admission_year);
+                setElementText("s-pass-year", data.student.passout_year);
+                setElementText("s-cgpa", data.student.cgpa);
+                setElementText("s-remarks", data.student.remarks || "Qualified");
 
                 renderSemesterTable(data.semesters, false);
-                document.getElementById("profile-area").style.display = "block";
-            } catch (err) { alert(err.message); }
+                const profileArea = document.getElementById("profile-area");
+                if (profileArea) profileArea.style.display = "block";
+            } catch (err) {
+                alert(err.message);
+            }
         }
 
         function renderSemesterTable(semesters, editable) {
             const tbody = document.getElementById("sem-table-body");
+            if (!tbody) return;
+            
             tbody.innerHTML = "";
             const semLabels = ["I", "II", "III", "IV", "V", "VI"];
 
@@ -492,11 +511,11 @@
                 if (editable) {
                     tbody.innerHTML += `<tr>
                         <td><b>Semester ${sem}</b><input type="hidden" class="edit-sem-num" value="${sem}"></td>
-                        <td><input type="text" class="edit-sem-year" value="${s.year}"></td>
+                        <td><input type="text" class="edit-sem-year" value="${s.year || ''}"></td>
                         <td><input type="text" class="edit-sem-fm" value="${s.full_marks || '400'}"></td>
-                        <td><input type="text" class="edit-sem-marks" value="${s.marks}"></td>
+                        <td><input type="text" class="edit-sem-marks" value="${s.marks || ''}"></td>
                         <td><input type="text" class="edit-sem-cred" value="${s.credit || '20'}"></td>
-                        <td><input type="text" class="edit-sem-sgpa" value="${s.sgpa}"></td>
+                        <td><input type="text" class="edit-sem-sgpa" value="${s.sgpa || ''}"></td>
                     </tr>`;
                 } else {
                     tbody.innerHTML += `<tr>
@@ -516,32 +535,30 @@
             const displayType = isEditMode ? "inline-block" : "none";
             const textType = isEditMode ? "none" : "inline-block";
 
-            document.getElementById("edit-name").value = document.getElementById("s-name").innerText;
-            document.getElementById("edit-cgpa").value = document.getElementById("s-cgpa-banner").innerText;
-            document.getElementById("edit-grade").value = document.getElementById("s-grade-banner").innerText;
-            document.getElementById("edit-roll").value = document.getElementById("s-roll").innerText;
-            document.getElementById("edit-course").value = document.getElementById("s-course").innerText;
-            document.getElementById("edit-subject").value = document.getElementById("s-subject").innerText;
-            document.getElementById("edit-remarks").value = document.getElementById("s-remarks").innerText;
+            setElementValue("edit-name", document.getElementById("s-name") ? document.getElementById("s-name").innerText : "");
+            setElementValue("edit-cgpa", document.getElementById("s-cgpa-banner") ? document.getElementById("s-cgpa-banner").innerText : "");
+            setElementValue("edit-grade", document.getElementById("s-grade-banner") ? document.getElementById("s-grade-banner").innerText : "");
+            setElementValue("edit-roll", document.getElementById("s-roll") ? document.getElementById("s-roll").innerText : "");
+            setElementValue("edit-course", document.getElementById("s-course") ? document.getElementById("s-course").innerText : "");
+            setElementValue("edit-subject", document.getElementById("s-subject") ? document.getElementById("s-subject").innerText : "");
+            setElementValue("edit-remarks", document.getElementById("s-remarks") ? document.getElementById("s-remarks").innerText : "");
 
-            document.getElementById("edit-name").style.display = displayType;
-            document.getElementById("edit-cgpa").style.display = displayType;
-            document.getElementById("edit-grade").style.display = displayType;
-            document.getElementById("edit-roll").style.display = displayType;
-            document.getElementById("edit-course").style.display = displayType;
-            document.getElementById("edit-subject").style.display = displayType;
-            document.getElementById("edit-remarks").style.display = displayType;
+            const fields = ["edit-name", "edit-cgpa", "edit-grade", "edit-roll", "edit-course", "edit-subject", "edit-remarks"];
+            fields.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = displayType;
+            });
 
-            document.getElementById("s-name").style.display = textType;
-            document.getElementById("s-cgpa-banner").style.display = textType;
-            document.getElementById("s-grade-banner").style.display = textType;
-            document.getElementById("s-roll").style.display = textType;
-            document.getElementById("s-course").style.display = textType;
-            document.getElementById("s-subject").style.display = textType;
-            document.getElementById("s-remarks").style.display = textType;
+            const textFields = ["s-name", "s-cgpa-banner", "s-grade-banner", "s-roll", "s-course", "s-subject", "s-remarks"];
+            textFields.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = textType;
+            });
 
-            document.getElementById("save-edit-btn-container").style.display = isEditMode ? "block" : "none";
-            document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks";
+            const saveBtnContainer = document.getElementById("save-edit-btn-container");
+            if (saveBtnContainer) saveBtnContainer.style.display = isEditMode ? "block" : "none";
+            
+            setElementText("toggleEditBtn", isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks");
 
             getStudentData(currentLoadedRegNo).then(data => {
                 renderSemesterTable(data.semesters, isEditMode);
@@ -555,7 +572,10 @@
             const updatedSemesters = [];
 
             semRows.forEach(row => {
-                const sem = row.querySelector(".edit-sem-num").value;
+                const semInput = row.querySelector(".edit-sem-num");
+                if (!semInput) return;
+                
+                const sem = semInput.value;
                 const yr = row.querySelector(".edit-sem-year").value.trim();
                 const fm = row.querySelector(".edit-sem-fm").value.trim();
                 const mo = row.querySelector(".edit-sem-marks").value.trim();
@@ -586,7 +606,7 @@
             };
 
             const msg = document.getElementById("edit-msg");
-            msg.innerText = "Saving changes...";
+            if (msg) msg.innerText = "Saving changes...";
 
             try {
                 const res = await fetch(`/api/admin/update-profile-full/${currentLoadedRegNo}`, {
@@ -596,17 +616,21 @@
                 });
 
                 if (res.ok) {
-                    msg.innerText = "✅ Profile & Marks updated successfully! Reflected in Statistics and Directory.";
-                    msg.style.color = "green";
+                    if (msg) {
+                        msg.innerText = "✅ Profile & Marks updated successfully! Reflected in Statistics and Directory.";
+                        msg.style.color = "green";
+                    }
                     fetchStudentProfile();
                 } else throw new Error();
             } catch (err) {
-                msg.innerText = "❌ Failed to save updates.";
-                msg.style.color = "red";
+                if (msg) {
+                    msg.innerText = "❌ Failed to save updates.";
+                    msg.style.color = "red";
+                }
             }
         }
 
-        // 3. Document Issuance Tracker
+        // 3. Document Issuance
         async function loadDocStatus() {
             const regNo = document.getElementById("docRegNo").value.trim();
             if (!regNo) return alert("Enter a Registration Number.");
@@ -614,30 +638,41 @@
             try {
                 const data = await getStudentData(regNo);
                 currentLoadedRegNo = data.student.reg_no;
-                document.getElementById("doc-student-title").innerText = `${data.student.name} (${data.student.reg_no})`;
-                document.getElementById("marksheetCb").checked = data.student.marksheet_received;
-                document.getElementById("certCb").checked = data.student.certificate_received;
-                document.getElementById("marksheetDate").value = data.student.marksheet_issue_date || "";
-                document.getElementById("certDate").value = data.student.certificate_issue_date || "";
+                setElementText("doc-student-title", `${data.student.name} (${data.student.reg_no})`);
+                
+                const msCb = document.getElementById("marksheetCb");
+                if (msCb) msCb.checked = data.student.marksheet_received;
+
+                const certCb = document.getElementById("certCb");
+                if (certCb) certCb.checked = data.student.certificate_received;
+
+                setElementValue("marksheetDate", data.student.marksheet_issue_date || "");
+                setElementValue("certDate", data.student.certificate_issue_date || "");
 
                 const issuedBy = data.student.issued_by || "Roma Pore";
                 if (["Roma Pore", "Ruma Bhunia", "Mita Das"].includes(issuedBy)) {
-                    document.getElementById("issuedBySelect").value = issuedBy;
-                    document.getElementById("issuedByOtherInput").style.display = "none";
+                    setElementValue("issuedBySelect", issuedBy);
+                    const otherInput = document.getElementById("issuedByOtherInput");
+                    if (otherInput) otherInput.style.display = "none";
                 } else {
-                    document.getElementById("issuedBySelect").value = "Other";
-                    document.getElementById("issuedByOtherInput").style.display = "block";
-                    document.getElementById("issuedByOtherInput").value = issuedBy;
+                    setElementValue("issuedBySelect", "Other");
+                    const otherInput = document.getElementById("issuedByOtherInput");
+                    if (otherInput) {
+                        otherInput.style.display = "block";
+                        otherInput.value = issuedBy;
+                    }
                 }
 
-                document.getElementById("doc-msg").innerText = "";
-                document.getElementById("doc-form-area").style.display = "block";
+                setElementText("doc-msg", "");
+                const formArea = document.getElementById("doc-form-area");
+                if (formArea) formArea.style.display = "block";
             } catch (err) { alert(err.message); }
         }
 
         function toggleOtherIssuedBy() {
             const sel = document.getElementById("issuedBySelect").value;
-            document.getElementById("issuedByOtherInput").style.display = (sel === "Other") ? "block" : "none";
+            const otherInput = document.getElementById("issuedByOtherInput");
+            if (otherInput) otherInput.style.display = (sel === "Other") ? "block" : "none";
         }
 
         async function saveDocStatusDetailed() {
@@ -653,7 +688,7 @@
             formData.append("issued_by", issuedByVal);
 
             const res = await fetch(`/api/admin/update-issuance-detailed/${currentLoadedRegNo}`, { method: "POST", body: formData });
-            if(res.ok) document.getElementById("doc-msg").innerText = "✅ Issuance details saved successfully!";
+            if(res.ok) setElementText("doc-msg", "✅ Issuance details saved successfully!");
         }
 
         // 4. Career Status
@@ -664,19 +699,23 @@
             try {
                 const data = await getStudentData(regNo);
                 currentLoadedRegNo = data.student.reg_no;
-                document.getElementById("career-student-title").innerText = `${data.student.name} (${data.student.reg_no})`;
-                document.getElementById("s-course-edit").value = data.student.course;
-                document.getElementById("s-subject-edit").value = data.student.subject || "BNGA";
-                document.getElementById("postGradStatus").value = data.student.status || "Unknown";
-                document.getElementById("postGradDetails").value = data.student.details;
+                setElementText("career-student-title", `${data.student.name} (${data.student.reg_no})`);
+                setElementValue("s-course-edit", data.student.course);
+                setElementValue("s-subject-edit", data.student.subject || "BNGA");
+                setElementValue("postGradStatus", data.student.status || "Unknown");
+                setElementValue("postGradDetails", data.student.details);
 
-                if (data.student.proof) {
-                    document.getElementById("current-proof-link").innerHTML = `<b>Proof Document:</b> <a href="/${data.student.proof}" target="_blank">📄 View File</a>`;
-                } else {
-                    document.getElementById("current-proof-link").innerText = "No proof file uploaded.";
+                const proofContainer = document.getElementById("current-proof-link");
+                if (proofContainer) {
+                    if (data.student.proof) {
+                        proofContainer.innerHTML = `<b>Proof Document:</b> <a href="/${data.student.proof}" target="_blank">📄 View File</a>`;
+                    } else {
+                        proofContainer.innerText = "No proof file uploaded.";
+                    }
                 }
-                document.getElementById("career-msg").innerText = "";
-                document.getElementById("career-form-area").style.display = "block";
+                setElementText("career-msg", "");
+                const formArea = document.getElementById("career-form-area");
+                if (formArea) formArea.style.display = "block";
             } catch (err) { alert(err.message); }
         }
 
@@ -696,7 +735,7 @@
 
             const res = await fetch(`/api/admin/update-status/${currentLoadedRegNo}`, { method: "POST", body: formData });
             if(res.ok) {
-                document.getElementById("career-msg").innerText = "✅ Career details updated successfully!";
+                setElementText("career-msg", "✅ Career details updated successfully!");
                 loadCareerStatus();
             }
         }
@@ -761,33 +800,36 @@
                     }
                 });
 
-                document.getElementById("stats-container").innerHTML = `<div class="card">
-                    <h3>Summary Statistics</h3>
-                    <p><b>Total Students Matched:</b> ${filtered.length}</p>
-                </div>`;
+                const statsContainer = document.getElementById("stats-container");
+                if (statsContainer) {
+                    statsContainer.innerHTML = `<div class="card">
+                        <h3>Summary Statistics</h3>
+                        <p><b>Total Students Matched:</b> ${filtered.length}</p>
+                    </div>`;
+                }
 
             } catch (err) {
                 console.error(err);
             }
         }
 
-        // 6. Master Directory Table with Live Search & Proof Attachment
+        // 6. Master Directory Table
         async function fetchDirectory() {
             const container = document.getElementById("directory-container");
-            container.innerHTML = "<i>Loading student directory...</i>";
+            if (container) container.innerHTML = "<i>Loading student directory...</i>";
             try {
                 const res = await fetch("/api/admin/all-students");
                 allStudentsList = await res.json();
                 applyDirectoryFilters();
             } catch (err) {
-                container.innerHTML = "<p style='color:red;'>Failed to load directory.</p>";
+                if (container) container.innerHTML = "<p style='color:red;'>Failed to load directory.</p>";
             }
         }
 
         function applyDirectoryFilters() {
-            const searchVal = document.getElementById("directorySearchInput").value.trim().toLowerCase();
-            const selYear = document.getElementById("filterYear").value;
-            const selCourse = document.getElementById("filterCourse").value;
+            const searchVal = document.getElementById("directorySearchInput") ? document.getElementById("directorySearchInput").value.trim().toLowerCase() : "";
+            const selYear = document.getElementById("filterYear") ? document.getElementById("filterYear").value : "ALL";
+            const selCourse = document.getElementById("filterCourse") ? document.getElementById("filterCourse").value : "ALL";
 
             filteredStudentsList = allStudentsList.filter(s => {
                 const matchSearch = (searchVal === "") || 
@@ -805,6 +847,8 @@
 
         function renderDirectoryTable() {
             const container = document.getElementById("directory-container");
+            if (!container) return;
+
             if (filteredStudentsList.length === 0) {
                 container.innerHTML = "<p>No matching student records found.</p>";
                 return;
