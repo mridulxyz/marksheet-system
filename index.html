@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shyampur Siddheswari Mahavidyalaya Marksheet Portal</title>
-    <!-- Chart.js CDN for Menu 5 Colorful Pie Charts -->
+    <!-- Chart.js CDN for Visual Analytics -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f0f4f8; }
@@ -64,6 +64,7 @@
         <div class="sidebar-header">
             <h2>Shyampur Siddheswari Mahavidyalaya</h2>
             <span>Marksheet Portal</span>
+            <div id="userBadge" style="margin-top: 8px; font-size: 11px; color: #3498db; background: #2c3e50; padding: 4px 8px; border-radius: 4px; display: inline-block;">Checking login...</div>
         </div>
         <ul>
             <li class="active" onclick="switchTab(event, 'upload')">1. 📤 Upload Marksheets</li>
@@ -310,7 +311,7 @@
             <h2>Student Master Directory</h2>
             <p>Search, filter, export to Excel, or manage student records stored in the database.</p>
 
-            <!-- SEARCH BAR -->
+            <!-- LIVE SEARCH BAR -->
             <div style="margin-bottom: 15px;">
                 <input type="text" id="directorySearchInput" onkeyup="applyDirectoryFilters()" placeholder="🔍 Live Search by Registration No, Name, or Roll No..." style="font-size: 15px; padding: 12px; border: 2px solid #2980b9;">
             </div>
@@ -347,7 +348,7 @@
 
                 <div style="display:flex; gap:10px;">
                     <button onclick="downloadExcel()" class="btn-green">📥 Export Excel (.CSV)</button>
-                    <button onclick="clearAllData()" class="btn-red">🗑️ Clear All Records</button>
+                    <button id="clearAllBtn" onclick="clearAllData()" class="btn-red">🗑️ Clear All Records</button>
                 </div>
             </div>
 
@@ -366,6 +367,25 @@
         let isEditMode = false;
         let gradeChartInstance = null;
         let careerChartInstance = null;
+        let currentUserRole = "user";
+
+        // Check Login User Role on Page Load
+        window.onload = async function() {
+            try {
+                const res = await fetch('/api/auth/me');
+                if (res.ok) {
+                    const data = await res.json();
+                    currentUserRole = data.role;
+                    document.getElementById("userBadge").innerText = `User: ${data.username} (${data.role.toUpperCase()})`;
+                    
+                    // Hide Clear All button for non-admin users
+                    if (currentUserRole !== "admin") {
+                        const clearBtn = document.getElementById("clearAllBtn");
+                        if (clearBtn) clearBtn.style.display = "none";
+                    }
+                }
+            } catch (e) {}
+        };
 
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
@@ -443,7 +463,6 @@
                 document.getElementById("toggleEditBtn").innerText = "✏️ Edit Profile & Marks";
                 document.getElementById("save-edit-btn-container").style.display = "none";
 
-                // Populate Fields
                 document.getElementById("s-name").innerText = data.student.name;
                 document.getElementById("s-cgpa-banner").innerText = data.student.cgpa;
                 document.getElementById("s-grade-banner").innerText = data.student.grade;
@@ -467,7 +486,7 @@
             tbody.innerHTML = "";
             const semLabels = ["I", "II", "III", "IV", "V", "VI"];
 
-            semLabels.forEach((sem, idx) => {
+            semLabels.forEach((sem) => {
                 let s = semesters.find(item => item.semester === sem) || { semester: sem, year: "", full_marks: "400", marks: "", credit: "20", sgpa: "" };
                 
                 if (editable) {
@@ -544,7 +563,7 @@
                 const sgpa = row.querySelector(".edit-sem-sgpa").value.trim();
 
                 if (yr || sgpa || mo) {
-                    updatedSemesters.append ? updatedSemesters.append : updatedSemesters.push({
+                    updatedSemesters.push({
                         semester: sem,
                         year: yr,
                         full_marks: fm || "400",
@@ -579,7 +598,7 @@
                 if (res.ok) {
                     msg.innerText = "✅ Profile & Marks updated successfully! Reflected in Statistics and Directory.";
                     msg.style.color = "green";
-                    fetchStudentProfile(); // Refresh
+                    fetchStudentProfile();
                 } else throw new Error();
             } catch (err) {
                 msg.innerText = "❌ Failed to save updates.";
@@ -587,7 +606,7 @@
             }
         }
 
-        // 3. Document Issuance
+        // 3. Document Issuance Tracker
         async function loadDocStatus() {
             const regNo = document.getElementById("docRegNo").value.trim();
             if (!regNo) return alert("Enter a Registration Number.");
@@ -705,7 +724,6 @@
                     return matchYr && matchCourse && matchSub;
                 });
 
-                // Tally Grades
                 const gradeCounts = {};
                 const careerCounts = {};
 
@@ -717,7 +735,6 @@
                     careerCounts[st] = (careerCounts[st] || 0) + 1;
                 });
 
-                // Render Grade Pie Chart
                 const gradeCtx = document.getElementById('gradePieChart').getContext('2d');
                 if (gradeChartInstance) gradeChartInstance.destroy();
                 gradeChartInstance = new Chart(gradeCtx, {
@@ -731,7 +748,6 @@
                     }
                 });
 
-                // Render Career Pie Chart
                 const careerCtx = document.getElementById('careerPieChart').getContext('2d');
                 if (careerChartInstance) careerChartInstance.destroy();
                 careerChartInstance = new Chart(careerCtx, {
@@ -745,7 +761,6 @@
                     }
                 });
 
-                // Text summary
                 document.getElementById("stats-container").innerHTML = `<div class="card">
                     <h3>Summary Statistics</h3>
                     <p><b>Total Students Matched:</b> ${filtered.length}</p>
@@ -804,16 +819,26 @@
                         <th>Subject</th>
                         <th>CGPA</th>
                         <th>Grade</th>
-                        <th>Marksheet</th>
-                        <th>Certificate</th>
-                        <th>Career Status & Attachment</th>
-                        <th>Action</th>
+                        <th>Marksheet Status</th>
+                        <th>Certificate Status</th>
+                        <th>Career Status & Proof</th>
+                        ${currentUserRole === 'admin' ? '<th>Action</th>' : ''}
                     </tr>
                 </thead>
                 <tbody>`;
 
             filteredStudentsList.forEach(s => {
-                let proofLink = s.proof_document_path ? `<br><a href="/${s.proof_document_path}" target="_blank" style="font-size:11px;">📄 Proof File</a>` : '';
+                let msStatus = s.marksheet_received ? 
+                    `<span class="status-tag tag-yes">ISSUED</span><br><small style="font-size:11px; color:#555;">Date: ${s.marksheet_issue_date || '-'}<br>By: ${s.issued_by || '-'}</small>` : 
+                    `<span class="status-tag tag-no">PENDING</span>`;
+
+                let certStatus = s.certificate_received ? 
+                    `<span class="status-tag tag-yes">ISSUED</span><br><small style="font-size:11px; color:#555;">Date: ${s.certificate_issue_date || '-'}<br>By: ${s.issued_by || '-'}</small>` : 
+                    `<span class="status-tag tag-no">PENDING</span>`;
+
+                let proofLink = s.proof_document_path ? `<br><a href="/${s.proof_document_path}" target="_blank" style="font-size:11px; font-weight:bold;">📄 View Proof</a>` : '';
+                let detailsText = s.post_grad_details ? `<br><small style="font-size:11px; color:#555;">${s.post_grad_details}</small>` : '';
+
                 html += `<tr>
                     <td><b>${s.registration_no}</b></td>
                     <td>${s.name}</td>
@@ -821,10 +846,10 @@
                     <td><b>${s.subject || 'BNGA'}</b></td>
                     <td><b>${s.overall_cgpa}</b></td>
                     <td><b>${s.overall_grade}</b></td>
-                    <td><span class="status-tag ${s.marksheet_received ? 'tag-yes':'tag-no'}">${s.marksheet_received ? 'ISSUED':'PENDING'}</span></td>
-                    <td><span class="status-tag ${s.certificate_received ? 'tag-yes':'tag-no'}">${s.certificate_received ? 'ISSUED':'PENDING'}</span></td>
-                    <td><b>${s.post_grad_status || 'Unknown'}</b> ${proofLink}</td>
-                    <td><button onclick="deleteSingleStudent('${s.registration_no}')" class="btn-sm-red">Delete</button></td>
+                    <td>${msStatus}</td>
+                    <td>${certStatus}</td>
+                    <td><b>${s.post_grad_status || 'Unknown'}</b>${detailsText}${proofLink}</td>
+                    ${currentUserRole === 'admin' ? `<td><button onclick="deleteSingleStudent('${s.registration_no}')" class="btn-sm-red">Delete</button></td>` : ''}
                 </tr>`;
             });
 
@@ -837,10 +862,10 @@
                 return alert("No student records available to export.");
             }
 
-            let csv = "Registration No,Name,Roll No,Course,Subject,Admission Year,CGPA,Grade,Remarks,Marksheet Status,Certificate Status,Career Status,Career Details\n";
+            let csv = "Registration No,Name,Roll No,Course,Subject,Admission Year,CGPA,Grade,Remarks,Marksheet Status,Marksheet Date,Certificate Status,Certificate Date,Issued By,Career Status,Career Details\n";
 
             filteredStudentsList.forEach(s => {
-                csv += `"${s.registration_no}","${s.name}","${s.roll_no}","${s.course}","${s.subject || 'BNGA'}","${s.admission_year || ''}","${s.overall_cgpa}","${s.overall_grade}","${s.remarks || ''}","${s.marksheet_received ? 'ISSUED':'PENDING'}","${s.certificate_received ? 'ISSUED':'PENDING'}","${s.post_grad_status || 'Unknown'}","${s.post_grad_details || ''}"\n`;
+                csv += `"${s.registration_no}","${s.name}","${s.roll_no}","${s.course}","${s.subject || 'BNGA'}","${s.admission_year || ''}","${s.overall_cgpa}","${s.overall_grade}","${s.remarks || ''}","${s.marksheet_received ? 'ISSUED':'PENDING'}","${s.marksheet_issue_date || ''}","${s.certificate_received ? 'ISSUED':'PENDING'}","${s.certificate_issue_date || ''}","${s.issued_by || ''}","${s.post_grad_status || 'Unknown'}","${s.post_grad_details || ''}"\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -854,6 +879,7 @@
         }
 
         async function deleteSingleStudent(regNo) {
+            if (currentUserRole !== "admin") return alert("Admin permission required to delete student records.");
             if (!confirm(`Are you sure you want to delete student record ${regNo}?`)) return;
 
             try {
@@ -861,13 +887,17 @@
                 if (res.ok) {
                     alert("Student record deleted.");
                     fetchDirectory();
-                } else throw new Error();
+                } else {
+                    const data = await res.json();
+                    alert(data.detail || "Failed to delete student record.");
+                }
             } catch (err) {
                 alert("Failed to delete student record.");
             }
         }
 
         async function clearAllData() {
+            if (currentUserRole !== "admin") return alert("Admin permission required to clear the database.");
             if (!confirm("⚠️ DANGER: Are you sure you want to DELETE ALL student records from the database? This action cannot be undone!")) return;
 
             try {
@@ -875,7 +905,10 @@
                 if (res.ok) {
                     alert("All student records cleared successfully!");
                     fetchDirectory();
-                } else throw new Error();
+                } else {
+                    const data = await res.json();
+                    alert(data.detail || "Failed to clear database.");
+                }
             } catch (err) {
                 alert("Failed to clear database.");
             }
