@@ -785,23 +785,17 @@ async def update_student_status(
 
 @app.get("/api/admin/grade-stats")
 def get_grade_stats(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    students = db.query(Student).all()
+    stats = db.query(Student.course, Student.overall_grade, func.count(Student.registration_no)) \
+              .group_by(Student.course, Student.overall_grade).all()
     
     result = {}
-    for s in students:
-        c = s.course if s.course else "Unknown Course"
-        g = s.overall_grade if s.overall_grade else "Fail/NA"
-        sub = s.subject if s.subject else "Unknown Subject"
-        pass_yr = "Unknown"
+    for course, grade, count in stats:
+        c = course if course else "Unknown Course"
+        g = grade if grade else "Fail/NA"
+        if c not in result:
+            result[c] = {}
+        result[c][g] = count
         
-        for sem in s.semesters:
-            if sem.semester in ["VI", "6", "VI."] and sem.year:
-                pass_yr = sem.year
-
-        if c not in result: result[c] = {}
-        if g not in result[c]: result[c][g] = 0
-        result[c][g] += 1
-
     return result
 
 @app.get("/api/admin/all-students")
