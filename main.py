@@ -33,14 +33,12 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
-# --- MULTI-USER AUTHENTICATION & ROLES ---
+# --- SECURITY (ADMIN LOGIN) ---
 security = HTTPBasic()
 
-# Admin Credentials
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cuadmin123")
 
-# Normal Users Credentials (All permissions EXCEPT delete)
 USER1_USERNAME = os.getenv("USER1_USERNAME", "staff1")
 USER1_PASSWORD = os.getenv("USER1_PASSWORD", "staff123")
 
@@ -51,15 +49,12 @@ def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
     username = credentials.username
     password = credentials.password
 
-    # Check Admin
     if secrets.compare_digest(username, ADMIN_USERNAME) and secrets.compare_digest(password, ADMIN_PASSWORD):
         return {"username": username, "role": "admin"}
 
-    # Check Normal User 1
     if secrets.compare_digest(username, USER1_USERNAME) and secrets.compare_digest(password, USER1_PASSWORD):
         return {"username": username, "role": "user"}
 
-    # Check Normal User 2
     if secrets.compare_digest(username, USER2_USERNAME) and secrets.compare_digest(password, USER2_PASSWORD):
         return {"username": username, "role": "user"}
 
@@ -145,22 +140,55 @@ bg_upload_status = {
     "filename": ""
 }
 
-# --- UNTOUCHED OPENAI GPT-4o VISION PARSER ---
+# --- CROP ANCHOR SEARCH ---
+
+def get_summary_table_crop_rect(page):
+    rect = page.rect
+    hits = page.search_for("Cumulative Credit") or page.search_for("Semester Credit") or page.search_for("Full Marks")
+    
+    if hits:
+        summary_hits = [h for h in hits if h.y0 > rect.height * 0.45]
+        if summary_hits:
+            y0 = max(0, summary_hits[0].y0 - 20)
+            y1 = min(rect.height, y0 + (rect.height * 0.35))
+            return fitz.Rect(0, y0, rect.width, y1)
+
+    return fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
+
+# --- FLAGSHIP GPT-4o VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
-    pix = page.get_pixmap(dpi=200)
-    img_bytes = pix.tobytes("jpeg")
-    base64_image = base64.b64encode(img_bytes).decode('utf-8')
+    rect = page.rect
 
-    prompt = """
-    You are an expert transcript parser. Carefully inspect this Calcutta University Grade Sheet image with 100% precision and return ONLY a valid JSON object matching this exact schema:
+    # 1. Full Page Image for Header Info
+    pix_full = page.get_pixmap(dpi=120)
+    img_bytes_full = pix_full.tobytes("jpeg")
+    base64_full = base64.b64encode(img_bytes_full).decode('utf-8')
 
+    prompt_header = """
+    Extract header information from this Calcutta University Marksheet image and return ONLY a JSON object:
     {
       "registration_no": "424-1211-0240-19",
       "roll_no": "192424-11-0044",
       "name": "SWAGATA PURKAIT",
-      "course": "B.A. (Honours) Examination (Under CBCS)",
-      "subject": "BNGA",
+      "course": "B.A. (Honours) Examination (Under CBCS)"
+    }
+    Rules:
+    1. Registration No format: 3-4-4-2 (e.g. 424-1211-0240-19).
+    2. Roll No format: 6-2-4 (e.g. 192424-11-0044).
+    3. Omit 'Semester - VI' or 'Semester - I' from course title.
+    """
+
+    # 2. Cropped Summary Table Image (CROPS OUT TOP SUBJECT TABLES)
+    table_rect = get_summary_table_crop_rect(page)
+    pix_table = page.get_pixmap(dpi=200, clip=table_rect)
+    img_bytes_table = pix_table.tobytes("jpeg")
+    base64_table = base64.b64encode(img_bytes_table).decode('utf-8')
+
+    prompt_table = """
+    Analyze ONLY this cropped Semester Summary Table from the bottom of a Calcutta University Grade Sheet and return ONLY a JSON object:
+
+    {
       "overall_cgpa": "6.819",
       "overall_grade": "B+",
       "remarks": "Qualified with Honours",
@@ -174,37 +202,36 @@ def parse_marksheet_with_openai_vision(page):
       ]
     }
 
-    VERIFICATION RULES FOR 100% ACCURACY:
-    1. SUMMARY TABLE LOCATION: Look at the table near the bottom labeled 'Semester', 'Year', 'Full Marks', 'Marks Obtained', 'Semester Credit', 'SGPA', 'Cumulative Credit', 'CGPA', 'Letter Grade', 'Remarks'.
-    2. GRADED CANDIDATES ONLY: If the student PASSED (Remarks = 'Qualified' or 'Qualified with Honours'):
-       - Extract ALL semester rows (I, II, III, IV, V, VI) with exact Year, Full Marks, Marks Obtained, Credit, SGPA.
-       - Read 'overall_cgpa' ONLY from column 'CGPA' in row 'VI' (e.g. 6.819).
-       - Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI' (e.g. B+, A+, A, B, C+, C, D, O).
-    3. FAILED / UNCLEARED CANDIDATES: If Remarks says 'Semester not cleared' or 'not cleared':
-       - Set "overall_cgpa": "N.A."
-       - Set "overall_grade": "Fail / Semester Not Cleared"
-       - Set "semesters": [] (DO NOT EXTRACT ANY SEMESTER BREAKDOWN ROWS FOR FAILED CANDIDATES!).
-    4. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from top course component tables (e.g. BNGA-CC13, CC14, DSE-A4, DSE-B4).
-    5. SUBJECT CODE: Extract subject code prefix from course code (e.g. 'BNGA' from BNGA-CC13 or 'ENGG' from ENGG-CC13). Default to 'BNGA' if not clearly stated.
-    6. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
-    7. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
+    STRICT CRITICAL RULES:
+    1. EXTRACT ALL 6 ROWS: Carefully read every row present in the summary table (I, II, III, IV, V, VI). Do NOT omit Semester IV!
+    2. READ VALUES ROW BY ROW:
+       - Column 1: Semester (I, II, III, IV, V, VI)
+       - Column 2: Year (e.g. 2019, 2020, 2022, 2023, 2024)
+       - Column 3: Full Marks (400 or 500)
+       - Column 4: Marks Obtained (exact number e.g. 248, 310, 330, 372, 263, 270)
+       - Column 5: Semester Credit (20, 24, 26)
+       - Column 6: SGPA (e.g. 5.624, 7.705, 6.899, 7.367, 6.527, 6.686)
+    3. OVERALL GRADE: Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI' (e.g. B+, A+, A, B, C+, C, D, O). Do NOT read words like 'Good' or status 'P'.
+    4. OVERALL CGPA: Read 'overall_cgpa' ONLY from column 'CGPA' in row 'VI' (e.g. 6.819).
+    5. IF SEMESTER NOT CLEARED: If 'Semester not cleared' is printed in Remarks, set 'overall_cgpa': 'N.A.', 'overall_grade': 'Fail / Semester Not Cleared', and 'semesters': [].
+    6. REMARKS: Read the exact Remarks line right below the table (e.g. 'Qualified with Honours' or 'Semester not cleared').
     """
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = ai_client.chat.completions.create(
+            response_table = ai_client.chat.completions.create(
                 model="gpt-4o",
                 response_format={"type": "json_object"},
                 messages=[
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": prompt},
+                            {"type": "text", "text": prompt_table},
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                    "url": f"data:image/jpeg;base64,{base64_table}",
                                     "detail": "high"
                                 }
                             }
@@ -212,8 +239,47 @@ def parse_marksheet_with_openai_vision(page):
                     }
                 ]
             )
-            result_json = response.choices[0].message.content
-            return json.loads(result_json)
+            table_data = json.loads(response_table.choices[0].message.content)
+
+            response_header = ai_client.chat.completions.create(
+                model="gpt-4o",
+                response_format={"type": "json_object"},
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt_header},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_full}",
+                                    "detail": "high"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            )
+            header_data = json.loads(response_header.choices[0].message.content)
+
+            extracted_grade = str(table_data.get("overall_grade", "Fail / Semester Not Cleared")).strip()
+            valid_cu_grades = ["O", "A+", "A", "B+", "B", "C+", "C", "D", "F", "FAIL / SEMESTER NOT CLEARED"]
+            
+            if extracted_grade.upper() not in valid_cu_grades:
+                grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O|F)(?!\w)', extracted_grade, re.IGNORECASE)
+                if grade_m:
+                    extracted_grade = grade_m.group(1).upper()
+
+            return {
+                "registration_no": header_data.get("registration_no"),
+                "roll_no": header_data.get("roll_no"),
+                "name": header_data.get("name"),
+                "course": header_data.get("course"),
+                "overall_cgpa": table_data.get("overall_cgpa", "N.A."),
+                "overall_grade": extracted_grade,
+                "remarks": table_data.get("remarks", "Qualified with Honours"),
+                "semesters": table_data.get("semesters", [])
+            }
         except Exception as e:
             err_msg = str(e).lower()
             if ("429" in err_msg or "rate" in err_msg or "quota" in err_msg) and attempt < max_retries - 1:
@@ -221,32 +287,42 @@ def parse_marksheet_with_openai_vision(page):
             else:
                 raise e
 
-# --- LOCAL FALLBACK PARSER ---
+# --- LOCAL FALLBACK PARSER (WITH 1D Y-OVERLAP CLUSTERING) ---
 
-def extract_text_rows_from_rect(page, rect_box):
-    try:
-        words = page.get_text("words", clip=rect_box)
-        if not words: return ""
-        sorted_words = sorted(words, key=lambda w: (round(w[1] / 5.0), w[0]))
+def group_words_into_horizontal_lines(words, y_threshold=8):
+    if not words: return []
+    words_sorted = sorted(words, key=lambda w: w[1])
 
-        lines = []
-        current_line = []
-        last_y = None
+    lines = []
+    for w in words_sorted:
+        placed = False
+        y0, y1 = w[1], w[3]
+        y_center = (y0 + y1) / 2.0
 
-        for w in sorted_words:
-            x0, y0, x1, y1, word = w[0], w[1], w[2], w[3], w[4]
-            if last_y is None or abs(y0 - last_y) <= 5:
-                current_line.append(word)
-                last_y = y0
-            else:
-                lines.append(" ".join(current_line))
-                current_line = [word]
-                last_y = y0
+        for line in lines:
+            line_y_avg = sum((item[1] + item[3]) / 2.0 for item in line) / len(line)
+            if abs(y_center - line_y_avg) <= y_threshold:
+                line.append(w)
+                placed = True
+                break
 
-        if current_line: lines.append(" ".join(current_line))
-        return "\n".join(lines)
-    except Exception:
-        return page.get_text("text", clip=rect_box) or ""
+        if not placed:
+            lines.append([w])
+
+    formatted_lines = []
+    for line in lines:
+        line_sorted = sorted(line, key=lambda w: w[0])
+        line_text = " ".join(w[4] for w in line_sorted)
+        formatted_lines.append(line_text)
+
+    return formatted_lines
+
+def extract_summary_table_text_pymupdf(page):
+    table_rect = get_summary_table_crop_rect(page)
+    words = page.get_text("words", clip=table_rect)
+    if not words: return page.get_text("text", clip=table_rect) or ""
+    lines = group_words_into_horizontal_lines(words)
+    return "\n".join(lines)
 
 def extract_reg_no_bulletproof(text: str):
     if not text: return None, "Text empty"
@@ -325,8 +401,8 @@ def parse_summary_table_local(table_text: str):
 
                 if years and integers and floats:
                     s_yr = years[0]
-                    s_fm = integers[0] if len(integers) >= 1 else "400"
-                    s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
+                    s_fm = integers[0] if int(integers[0]) in [400, 500] else "400"
+                    s_marks = integers[1] if (len(integers) >= 2 and integers[0] in ["400", "500"]) else integers[0]
                     s_cred = integers[2] if len(integers) >= 3 else "20"
                     s_sgpa = floats[0]
 
@@ -343,12 +419,13 @@ def parse_summary_table_local(table_text: str):
     sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
     sems = sorted(sems, key=lambda x: sem_order.get(x["semester"], 99))
 
-    all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
-    valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
-    if valid_gpas: cgpa = valid_gpas[-1]
+    if not is_not_cleared:
+        all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
+        valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
+        if valid_gpas: cgpa = valid_gpas[-1]
 
-    grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
-    if grade_m: grade = grade_m.group(1)
+        grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
+        if grade_m: grade = grade_m.group(1)
 
     return sems, cgpa, grade, remarks
 
@@ -401,7 +478,8 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         overall_cgpa = data.get("overall_cgpa", "N.A.")
                         overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
 
-                        if "not cleared" in str(remarks).lower() or overall_grade.lower() in ["none", "null", "n.a.", ""]:
+                        # FOR FAILED / UNCLEARED CANDIDATES: DO NOT STORE SEMESTERS!
+                        if "not cleared" in str(remarks).lower() or "fail" in str(overall_grade).lower():
                             overall_cgpa = "N.A."
                             overall_grade = "Fail / Semester Not Cleared"
                             normalized_semesters = []
@@ -447,10 +525,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     subj_match = re.search(r'\b([A-Z]{3,4})\-[A-Z0-9]+\b', full_text)
                     subject = subj_match.group(1).upper() if subj_match else "BNGA"
 
-                    rect = page.rect
-                    table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
-                    table_text = extract_text_rows_from_rect(page, table_rect)
-
+                    table_text = extract_summary_table_text_pymupdf(page)
                     normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
 
                 # Database Upsert
