@@ -49,7 +49,7 @@
         .btn-red:hover { background-color: #c0392b !important; }
         .btn-sm-red { background-color: #e74c3c !important; padding: 5px 10px !important; font-size: 12px !important; width: auto !important; }
 
-        .log-box { text-align: left; background: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 5px; margin-top: 15px; font-size: 13px; color: #856404; font-family: monospace; max-height: 200px; overflow-y: auto; }
+        .progress-card { background: #eef9ff; border: 2px solid #3498db; padding: 20px; border-radius: 8px; margin-top: 15px; font-size: 15px; }
     </style>
 </head>
 <body>
@@ -91,7 +91,7 @@
             <input type="file" id="pdfFile" accept="application/pdf">
             <button id="uploadBtn" onclick="uploadPDF()">Upload & Process PDF</button>
             
-            <div id="upload-msg" style="margin-top: 15px; font-weight: bold;"></div>
+            <div id="upload-msg" style="margin-top: 15px;"></div>
         </div>
 
         <!-- 2. STUDENT PROFILE & SEARCH -->
@@ -267,6 +267,7 @@
         let currentLoadedRegNo = "";
         let allStudentsList = [];
         let filteredStudentsList = [];
+        let statusInterval = null;
 
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
@@ -275,6 +276,7 @@
             evt.currentTarget.classList.add('active');
         }
 
+        // 1. Upload PDF & Poll Live Background Progress
         async function uploadPDF() {
             const file = document.getElementById("pdfFile").files[0];
             if (!file) return alert("Select a PDF first.");
@@ -282,9 +284,8 @@
             const btn = document.getElementById("uploadBtn");
             const msg = document.getElementById("upload-msg");
             btn.disabled = true;
-            btn.innerText = "Processing... Please wait";
-            msg.innerText = "Starting background extraction... (You can view extracted data live in Tab 6)";
-            msg.style.color = "#d35400";
+            btn.innerText = "Uploading... Please wait";
+            msg.innerHTML = "<div class='progress-card'>🚀 Starting extraction...</div>";
             
             const formData = new FormData();
             formData.append("file", file);
@@ -294,15 +295,38 @@
                 const res = await fetch(`/api/admin/upload-marksheet`, { method: "POST", body: formData });
                 const data = await res.json();
                 
-                msg.innerText = data.message;
-                msg.style.color = "green";
+                msg.innerHTML = `<div class='progress-card'>${data.message}</div>`;
+
+                // Start Polling Background Status every 2 seconds
+                if (statusInterval) clearInterval(statusInterval);
+                statusInterval = setInterval(pollUploadStatus, 2000);
             } catch (err) {
-                msg.innerText = "Error uploading PDF: " + err.message;
-                msg.style.color = "red";
-            } finally {
+                msg.innerHTML = `<div style="color:red; font-weight:bold;">Error uploading PDF: ${err.message}</div>`;
                 btn.disabled = false;
                 btn.innerText = "Upload & Process PDF";
             }
+        }
+
+        async function pollUploadStatus() {
+            try {
+                const res = await fetch('/api/admin/upload-status');
+                const status = await res.json();
+                const msg = document.getElementById("upload-msg");
+                const btn = document.getElementById("uploadBtn");
+
+                if (status.is_processing) {
+                    msg.innerHTML = `<div class="progress-card">
+                        <b style="color:#d35400;">⏳ Extraction in Progress:</b> ${status.processed_pages} / ${status.total_pages} pages completed (${status.extracted_count} student records saved so far)...
+                    </div>`;
+                } else if (status.status_message.includes("EXTRACTION DONE")) {
+                    msg.innerHTML = `<div class="progress-card" style="border-color:#27ae60; background:#e8f8f5; color:#1e8449;">
+                        <b>${status.status_message}</b>
+                    </div>`;
+                    btn.disabled = false;
+                    btn.innerText = "Upload & Process PDF";
+                    clearInterval(statusInterval);
+                }
+            } catch (e) {}
         }
 
         async function getStudentData(regNo) {
