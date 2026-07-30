@@ -3,329 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shyampur Siddheswari Mahavidyalaya - Marksheet Portal</title>
-    <!-- Chart.js for Visual Analytics -->
+    <title>Shyampur Siddheswari Mahavidyalaya Marksheet Portal</title>
+    <!-- Chart.js CDN for Visual Analytics -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root {
-            --primary: #2563eb;
-            --primary-hover: #1d4ed8;
-            --secondary: #0f172a;
-            --secondary-light: #1e293b;
-            --accent: #0d9488;
-            --success: #10b981;
-            --success-light: #d1fae5;
-            --danger: #ef4444;
-            --danger-light: #fee2e2;
-            --warning: #f59e0b;
-            --warning-light: #fef3c7;
-            --bg-main: #f8fafc;
-            --card-bg: #ffffff;
-            --border-color: #e2e8f0;
-            --text-dark: #0f172a;
-            --text-muted: #64748b;
-        }
-
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-            background-color: var(--bg-main);
-            color: var(--text-dark);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* TOP NAVIGATION BAR */
-        .navbar {
-            background-color: var(--secondary);
-            color: white;
-            padding: 0 25px;
-            height: 70px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
-
-        .nav-brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .brand-logo {
-            font-size: 26px;
-            background: linear-gradient(135deg, #3b82f6, #06b6d4);
-            width: 44px;
-            height: 44px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 10px;
-        }
-
-        .brand-title {
-            font-size: 16px;
-            font-weight: 700;
-            color: #f8fafc;
-            line-height: 1.2;
-        }
-
-        .brand-subtitle {
-            font-size: 11px;
-            color: #38bdf8;
-            font-weight: 600;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-        }
-
-        .nav-tabs {
-            display: flex;
-            gap: 6px;
-            height: 100%;
-            align-items: center;
-        }
-
-        .nav-tab {
-            padding: 10px 16px;
-            color: #94a3b8;
-            background: transparent;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            width: auto;
-        }
-
-        .nav-tab:hover {
-            color: #f8fafc;
-            background: rgba(255,255,255,0.08);
-        }
-
-        .nav-tab.active {
-            color: #ffffff;
-            background-color: var(--primary);
-            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
-        }
-
-        .user-badge {
-            background-color: var(--secondary-light);
-            border: 1px solid #334155;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            color: #38bdf8;
-        }
-
-        /* MAIN LAYOUT CONTAINER */
-        .main-container {
-            flex: 1;
-            padding: 30px 40px;
-            max-width: 1400px;
-            width: 100%;
-            margin: 0 auto;
-        }
-
-        .section {
-            display: none;
-            background: var(--card-bg);
-            padding: 35px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-            border: 1px solid var(--border-color);
-            animation: fadeIn 0.3s ease-in-out;
-        }
-
-        .section.active { display: block; }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(6px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        h2 { font-size: 22px; color: var(--secondary); margin-bottom: 8px; font-weight: 700; }
-        p.section-desc { font-size: 14px; color: var(--text-muted); margin-bottom: 25px; }
-
-        /* FORM ELEMENTS */
-        label { font-size: 13px; font-weight: 700; color: #334155; margin-top: 15px; display: block; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f0f4f8; }
         
-        input[type="text"], input[type="date"], input[type="file"], select {
-            padding: 12px 14px;
-            margin: 6px 0 12px 0;
-            width: 100%;
-            box-sizing: border-box;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.2s;
-            background: #ffffff;
-        }
+        .sidebar { width: 280px; background-color: #1a252f; color: white; padding-top: 20px; display: flex; flex-direction: column; flex-shrink: 0; }
+        .sidebar-header { text-align: center; padding: 0 15px 15px 15px; border-bottom: 1px solid #2c3e50; margin-bottom: 10px; }
+        .sidebar-header h2 { font-size: 16px; margin: 0 0 5px 0; color: #ecf0f1; font-weight: 700; line-height: 1.3; }
+        .sidebar-header span { font-size: 12px; color: #3498db; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .sidebar ul { list-style: none; padding: 0; margin: 0; }
+        .sidebar ul li { padding: 15px 20px; cursor: pointer; border-bottom: 1px solid #2c3e50; transition: background 0.2s; font-size: 14px; font-weight: 500; }
+        .sidebar ul li:hover, .sidebar ul li.active { background-color: #2980b9; border-left: 5px solid #3498db; }
+        
+        .main-content { flex: 1; padding: 40px; overflow-y: auto; }
+        .section { display: none; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .section.active { display: block; }
+        
+        input[type="text"], input[type="date"], input[type="file"], select, button { padding: 12px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; font-size: 14px; }
+        .checkbox-container { display: flex; align-items: center; margin: 15px 0; font-weight: bold; }
+        .checkbox-container input { width: 20px; height: 20px; margin-right: 10px; cursor: pointer; }
+        
+        button { background-color: #2980b9; color: white; border: none; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        button:hover { background-color: #1c5980; }
+        
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .result-card { display: flex; justify-content: space-around; align-items: center; background: #e8f8f5; border: 2px solid #1abc9c; border-radius: 8px; padding: 15px; margin-bottom: 20px; text-align: center; }
+        .card { background: #fdfefe; border: 1px solid #bdc3c7; padding: 20px; border-radius: 8px; margin-top: 15px; }
+        
+        table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 15px; margin-bottom: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; }
+        th { background-color: #2980b9; color: white; }
+        
+        .grade-badge { display: inline-block; padding: 8px 15px; margin: 5px; background: #34495e; color: white; border-radius: 20px; font-weight: bold; }
+        .status-tag { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; }
+        .tag-yes { background-color: #27ae60; }
+        .tag-no { background-color: #e74c3c; }
 
-        input:focus, select:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-        }
+        .toolbar { display: flex; gap: 15px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 15px; background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #e2e8f0; }
+        .toolbar-group { display: flex; gap: 10px; align-items: center; flex: 1; min-width: 200px; }
 
-        button {
-            padding: 12px 20px;
-            margin: 8px 0;
-            width: 100%;
-            box-sizing: border-box;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.2s;
-            background-color: var(--primary);
-            color: white;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
+        .btn-green { background-color: #27ae60 !important; width: auto !important; padding: 10px 20px !important; }
+        .btn-green:hover { background-color: #1e8449 !important; }
+        .btn-orange { background-color: #e67e22 !important; width: auto !important; padding: 10px 20px !important; }
+        .btn-orange:hover { background-color: #d35400 !important; }
+        .btn-red { background-color: #e74c3c !important; width: auto !important; padding: 10px 20px !important; }
+        .btn-red:hover { background-color: #c0392b !important; }
+        .btn-sm-red { background-color: #e74c3c !important; padding: 5px 10px !important; font-size: 12px !important; width: auto !important; }
 
-        button:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
-
-        .btn-green { background-color: var(--success) !important; width: auto !important; }
-        .btn-green:hover { background-color: #059669 !important; }
-        .btn-orange { background-color: var(--warning) !important; width: auto !important; color: #000 !important; }
-        .btn-orange:hover { background-color: #d97706 !important; }
-        .btn-red { background-color: var(--danger) !important; width: auto !important; }
-        .btn-red:hover { background-color: #dc2626 !important; }
-        .btn-sm-red { background-color: var(--danger) !important; padding: 6px 12px !important; font-size: 12px !important; width: auto !important; }
-
-        /* DROPZONE */
-        .dropzone {
-            border: 2px dashed #94a3b8;
-            border-radius: 12px;
-            padding: 40px;
-            text-align: center;
-            background: #f1f5f9;
-            cursor: pointer;
-            transition: all 0.2s;
-            margin: 15px 0;
-        }
-
-        .dropzone:hover, .dropzone.dragover {
-            border-color: var(--primary);
-            background: #eff6ff;
-        }
-
-        .dropzone-icon { font-size: 42px; color: var(--primary); margin-bottom: 10px; }
-
-        /* CARDS & GRIDS */
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 15px;
-            background: #f8fafc;
-            padding: 20px;
-            border-radius: 10px;
-            border: 1px solid var(--border-color);
-            margin-bottom: 25px;
-        }
-
-        .result-card {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            align-items: center;
-            background: linear-gradient(135deg, #ecfdf5, #e0f2fe);
-            border: 2px solid #a7f3d0;
-            border-radius: 12px;
-            padding: 20px 30px;
-            margin-bottom: 25px;
-            text-align: center;
-        }
-
-        .result-card-item label { font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin: 0; }
-        .result-card-item h2 { font-size: 22px; color: var(--secondary); margin: 4px 0 0 0; }
-        .result-card-item h1 { font-size: 34px; color: var(--success); margin: 4px 0 0 0; }
-
-        .card { background: #ffffff; border: 1px solid var(--border-color); padding: 25px; border-radius: 10px; margin-top: 20px; }
-
-        /* TABLES */
-        table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 15px; font-size: 14px; }
-        th, td { border: 1px solid #e2e8f0; padding: 12px 14px; }
-        th { background-color: #1e293b; color: white; font-weight: 600; font-size: 13px; text-transform: uppercase; }
-        tr:nth-child(even) { background-color: #f8fafc; }
-        tr:hover { background-color: #f1f5f9; }
-
-        /* STATUS TAGS */
-        .status-tag { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-        .tag-yes { background-color: var(--success-light); color: #047857; border: 1px solid #a7f3d0; }
-        .tag-no { background-color: var(--danger-light); color: #b91c1c; border: 1px solid #fecaca; }
-
-        /* TOOLBARS */
-        .toolbar {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            margin-bottom: 20px;
-            background: #f8fafc;
-            padding: 18px;
-            border-radius: 10px;
-            border: 1px solid var(--border-color);
-        }
-
-        .toolbar-group { display: flex; gap: 10px; align-items: center; flex: 1; min-width: 220px; }
-
-        /* CHARTS */
-        .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-top: 25px; }
-        .chart-box { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 25px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
-        .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-        .metric-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; text-align: center; }
-        .metric-card h3 { font-size: 26px; color: var(--primary); margin-top: 5px; }
-
-        /* PROGRESS & LOGS */
-        .progress-card { background: #eff6ff; border: 2px solid #bfdbfe; padding: 20px; border-radius: 10px; margin-top: 20px; font-size: 15px; color: #1e40af; }
+        .progress-card { background: #eef9ff; border: 2px solid #3498db; padding: 20px; border-radius: 8px; margin-top: 15px; font-size: 15px; }
+        .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+        .chart-box { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; text-align: center; }
     </style>
 </head>
 <body>
 
-    <!-- TOP NAVIGATION BAR -->
-    <header class="navbar">
-        <div class="nav-brand">
-            <div class="brand-logo">🎓</div>
-            <div>
-                <div class="brand-title">Shyampur Siddheswari Mahavidyalaya</div>
-                <div class="brand-subtitle">Marksheet Management Portal</div>
-            </div>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2>Shyampur Siddheswari Mahavidyalaya</h2>
+            <span>Marksheet Portal</span>
+            <div id="userBadge" style="margin-top: 8px; font-size: 11px; color: #3498db; background: #2c3e50; padding: 4px 8px; border-radius: 4px; display: inline-block;">Checking login...</div>
         </div>
+        <ul>
+            <li class="active" onclick="switchTab(event, 'upload')">1. 📤 Upload Marksheets</li>
+            <li onclick="switchTab(event, 'student-search')">2. 🔍 Student Profile</li>
+            <li onclick="switchTab(event, 'doc-issuance')">3. 📜 Document Issuance</li>
+            <li onclick="switchTab(event, 'career-status')">4. 💼 Career & Placements</li>
+            <li onclick="switchTab(event, 'stats'); renderCharts();">5. 📊 Result Statistics</li>
+            <li onclick="switchTab(event, 'directory'); fetchDirectory();">6. 📁 Student Directory</li>
+        </ul>
+    </div>
 
-        <nav class="nav-tabs">
-            <button class="nav-tab active" onclick="switchTab(event, 'upload')">1. 📤 Upload</button>
-            <button class="nav-tab" onclick="switchTab(event, 'student-search')">2. 🔍 Profile</button>
-            <button class="nav-tab" onclick="switchTab(event, 'doc-issuance')">3. 📜 Issuance</button>
-            <button class="nav-tab" onclick="switchTab(event, 'career-status')">4. 💼 Career</button>
-            <button class="nav-tab" onclick="switchTab(event, 'stats'); renderCharts();">5. 📊 Analytics</button>
-            <button class="nav-tab" onclick="switchTab(event, 'directory'); fetchDirectory();">6. 📁 Directory</button>
-        </nav>
-
-        <div class="user-badge" id="userBadge">Checking login...</div>
-    </header>
-
-    <!-- MAIN DASHBOARD CONTENT -->
-    <main class="main-container">
+    <div class="main-content">
         
-        <!-- 1. UPLOAD MARKSHEETS SECTION -->
-        <section id="upload" class="section active">
+        <!-- 1. UPLOAD SECTION -->
+        <div id="upload" class="section active">
             <h2>Cloud OCR: Extract Marksheets</h2>
-            <p class="section-desc">Upload student marksheets PDF to extract academic records into the database automatically.</p>
+            <p>Upload student marksheets PDF to extract academic records into the database.</p>
             
             <label><b>Select Course for this Upload Batch:</b></label>
             <select id="uploadCourseSelect">
@@ -338,51 +94,42 @@
                 <option value="B.Com. (MDC)">B.Com. (MDC)</option>
             </select>
 
-            <!-- DRAG & DROP ZONE -->
-            <div class="dropzone" id="pdfDropzone" onclick="document.getElementById('pdfFile').click();">
-                <div class="dropzone-icon">📄</div>
-                <div style="font-size: 16px; font-weight: 700; color: #334155;">Click to select or Drag & Drop PDF Marksheets here</div>
-                <div style="font-size: 13px; color: #94a3b8; margin-top: 5px;">Supports single or multi-page PDFs (up to 1000 pages)</div>
-                <div id="fileSelectedName" style="margin-top: 10px; font-weight: bold; color: #2563eb;"></div>
-            </div>
-            <input type="file" id="pdfFile" accept="application/pdf" style="display:none;" onchange="updateFileNameDisplay()">
-
-            <button id="uploadBtn" onclick="uploadPDF()">🚀 Start Upload & Background Extraction</button>
+            <label><b>Select PDF File:</b></label>
+            <input type="file" id="pdfFile" accept="application/pdf">
+            <button id="uploadBtn" onclick="uploadPDF()">Upload & Process PDF</button>
             
-            <div id="upload-msg"></div>
-        </section>
+            <div id="upload-msg" style="margin-top: 15px;"></div>
+        </div>
 
-        <!-- 2. STUDENT PROFILE & EDIT -->
-        <section id="student-search" class="section">
+        <!-- 2. STUDENT PROFILE & SEARCH (WITH MANUAL EDIT PROVISION) -->
+        <div id="student-search" class="section">
             <h2>Search Student Academic Profile</h2>
-            <p class="section-desc">Search by registration number to view or manually correct student academic records.</p>
+            <p>Enter student registration number to view or edit complete academic and semester marks.</p>
             
-            <div style="display: flex; gap: 10px;">
-                <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 424-1211-0240-19)" style="margin:0;">
-                <button onclick="fetchStudentProfile()" style="width: 220px;">🔍 Search Profile</button>
-            </div>
+            <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 424-1211-0240-19)">
+            <button onclick="fetchStudentProfile()">Search Student Database</button>
             
-            <div id="profile-area" style="display: none; margin-top: 25px;">
+            <div id="profile-area" style="display: none; margin-top: 20px;">
                 
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h3>Student Overview</h3>
+                    <h3>Academic Profile Summary</h3>
                     <button id="toggleEditBtn" onclick="toggleEditMode()" class="btn-orange">✏️ Edit Profile & Marks</button>
                 </div>
 
                 <div class="result-card">
-                    <div class="result-card-item">
-                        <label>Candidate Name</label>
-                        <h2 id="s-name"></h2>
+                    <div>
+                        <span style="font-size: 14px; color: #7f8c8d; font-weight: bold;">CANDIDATE NAME</span>
+                        <h2 id="s-name" style="margin: 5px 0 0 0; color: #2c3e50;"></h2>
                         <input type="text" id="edit-name" style="display:none;">
                     </div>
-                    <div class="result-card-item">
-                        <label>Final CGPA</label>
-                        <h1 id="s-cgpa-banner"></h1>
+                    <div>
+                        <span style="font-size: 14px; color: #7f8c8d; font-weight: bold;">FINAL CGPA</span>
+                        <h1 id="s-cgpa-banner" style="margin: 5px 0 0 0; color: #27ae60; font-size: 32px;"></h1>
                         <input type="text" id="edit-cgpa" style="display:none; text-align:center;">
                     </div>
-                    <div class="result-card-item">
-                        <label>Overall Grade</label>
-                        <h2 id="s-grade-banner"></h2>
+                    <div>
+                        <span style="font-size: 14px; color: #7f8c8d; font-weight: bold;">OVERALL GRADE</span>
+                        <h2 id="s-grade-banner" style="margin: 5px 0 0 0; color: #8e44ad;"></h2>
                         <input type="text" id="edit-grade" style="display:none; text-align:center;">
                     </div>
                 </div>
@@ -394,108 +141,92 @@
                     <div><b>Subject Code:</b> <span id="s-subject"></span> <input type="text" id="edit-subject" style="display:none;"></div>
                     <div><b>Admission Year:</b> <span id="s-admin-year"></span></div>
                     <div><b>Passout Year:</b> <span id="s-pass-year"></span></div>
-                    <div><b>Final CGPA:</b> <span id="s-cgpa"></span></div>
-                    <div><b>Remarks Statement:</b> <span id="s-remarks" style="color:var(--success); font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
+                    <div><b>Remarks Statement:</b> <span id="s-remarks" style="color:#27ae60; font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
                 </div>
 
-                <h3>Semester-wise Performance Breakdown</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Semester</th>
-                            <th>Exam Year</th>
-                            <th>Full Marks</th>
-                            <th>Marks Obtained</th>
-                            <th>Semester Credit</th>
-                            <th>SGPA</th>
-                        </tr>
-                    </thead>
-                    <tbody id="sem-table-body"></tbody>
-                </table>
+                <div id="sem-table-container">
+                    <h3>Semester-wise Performance Breakdown</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Semester</th>
+                                <th>Year</th>
+                                <th>Full Marks</th>
+                                <th>Marks Obtained</th>
+                                <th>Semester Credit</th>
+                                <th>SGPA</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sem-table-body"></tbody>
+                    </table>
+                </div>
 
-                <div id="save-edit-btn-container" style="display: none; margin-top: 20px;">
-                    <button onclick="saveFullProfileEdit()" class="btn-green" style="width: 100% !important; padding: 15px !important;">💾 Save All Profile & Marks Updates</button>
+                <div id="failed-candidate-note" style="display: none; margin-top: 15px; padding: 15px; background: #fee2e2; border: 1px solid #fecaca; border-radius: 8px; color: #b91c1c; font-weight: bold; text-align: center;">
+                    Semester-wise Performance Breakdown is not applicable for Fail / Semester Not Cleared candidates.
+                </div>
+
+                <div id="save-edit-btn-container" style="display: none; margin-top: 15px;">
+                    <button onclick="saveFullProfileEdit()" class="btn-green" style="width: 100% !important; padding: 15px !important; font-size: 16px;">💾 Save Updated Profile & Marks</button>
                     <div id="edit-msg" style="margin-top: 10px; font-weight: bold;"></div>
                 </div>
             </div>
-        </section>
+        </div>
 
         <!-- 3. DOCUMENT ISSUANCE -->
-        <section id="doc-issuance" class="section">
+        <div id="doc-issuance" class="section">
             <h2>Document Issuance Tracker</h2>
-            <p class="section-desc">Manage marksheets and degree certificates issued with exact dates and employee names.</p>
+            <p>Manage marksheets and degree certificates issued with dates and employee names.</p>
             
-            <div style="display: flex; gap: 10px;">
-                <input type="text" id="docRegNo" placeholder="Enter Registration Number" style="margin:0;">
-                <button onclick="loadDocStatus()" style="width: 220px;">Load Record</button>
-            </div>
+            <input type="text" id="docRegNo" placeholder="Enter Registration Number">
+            <button onclick="loadDocStatus()">Load Student</button>
 
             <div id="doc-form-area" style="display: none;" class="card">
-                <h3 id="doc-student-title" style="color:var(--primary);"></h3>
+                <h3 id="doc-student-title"></h3>
                 
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-top:15px;">
-                    <div>
-                        <div class="checkbox-container">
-                            <input type="checkbox" id="marksheetCb">
-                            <label for="marksheetCb" style="margin:0;">Marksheet Issued / Received</label>
-                        </div>
-                        <label><b>Marksheet Issue Date:</b></label>
-                        <div style="display:flex; gap:10px;">
-                            <input type="date" id="marksheetDate" style="margin:0;">
-                            <button type="button" onclick="setTodayDate('marksheetDate')" style="width:auto; padding:0 15px; margin:0;">Today</button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="checkbox-container">
-                            <input type="checkbox" id="certCb">
-                            <label for="certCb" style="margin:0;">Certificate Issued / Received</label>
-                        </div>
-                        <label><b>Certificate Issue Date:</b></label>
-                        <div style="display:flex; gap:10px;">
-                            <input type="date" id="certDate" style="margin:0;">
-                            <button type="button" onclick="setTodayDate('certDate')" style="width:auto; padding:0 15px; margin:0;">Today</button>
-                        </div>
-                    </div>
+                <div class="checkbox-container">
+                    <input type="checkbox" id="marksheetCb">
+                    <label for="marksheetCb">Marksheet Issued / Received</label>
                 </div>
+                <label><b>Marksheet Issue Date:</b></label>
+                <input type="date" id="marksheetDate">
 
-                <label style="margin-top:20px; display:block;"><b>Issued By (Employee Name):</b></label>
+                <div class="checkbox-container" style="margin-top:20px;">
+                    <input type="checkbox" id="certCb">
+                    <label for="certCb">Certificate Issued / Received</label>
+                </div>
+                <label><b>Certificate Issue Date:</b></label>
+                <input type="date" id="certDate">
+
+                <label style="margin-top:15px; display:block;"><b>Issued By (Employee Name):</b></label>
                 <select id="issuedBySelect" onchange="toggleOtherIssuedBy()">
                     <option value="Roma Pore">Roma Pore</option>
                     <option value="Ruma Bhunia">Ruma Bhunia</option>
                     <option value="Mita Das">Mita Das</option>
                     <option value="Other">Other (Specify Name)</option>
                 </select>
-                <input type="text" id="issuedByOtherInput" placeholder="Enter Custom Employee Name" style="display:none;">
+                <input type="text" id="issuedByOtherInput" placeholder="Enter Custom Employee Name" style="display:none; margin-top:5px;">
 
-                <button onclick="saveDocStatusDetailed()" class="btn-green" style="margin-top: 20px;">Save Issuance Record</button>
+                <button onclick="saveDocStatusDetailed()" style="background-color: #27ae60; margin-top: 15px;">Save Issuance Details</button>
                 <div id="doc-msg" style="margin-top: 10px; font-weight: bold;"></div>
             </div>
-        </section>
+        </div>
 
         <!-- 4. CAREER & PLACEMENTS -->
-        <section id="career-status" class="section">
+        <div id="career-status" class="section">
             <h2>Career & Post-Graduation Profile</h2>
-            <p class="section-desc">Track employment, higher study enrolments, subject codes, and uploaded proof documents.</p>
+            <p>Track employment, higher study enrolments, subject codes, and uploaded proof documents.</p>
             
-            <div style="display: flex; gap: 10px;">
-                <input type="text" id="careerRegNo" placeholder="Enter Registration Number" style="margin:0;">
-                <button onclick="loadCareerStatus()" style="width: 220px;">Load Record</button>
-            </div>
+            <input type="text" id="careerRegNo" placeholder="Enter Registration Number">
+            <button onclick="loadCareerStatus()">Load Student</button>
 
             <div id="career-form-area" style="display: none;" class="card">
-                <h3 id="career-student-title" style="color:var(--primary);"></h3>
+                <h3 id="career-student-title"></h3>
                 
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-top:15px;">
-                    <div>
-                        <label><b>Course Name:</b></label>
-                        <input type="text" id="s-course-edit">
-                    </div>
-                    <div>
-                        <label><b>Subject Code:</b></label>
-                        <input type="text" id="s-subject-edit" placeholder="e.g. BNGA, ENGG, MATH...">
-                    </div>
-                </div>
+                <label><b>Course Name:</b></label>
+                <input type="text" id="s-course-edit">
+
+                <label><b>Subject Code:</b></label>
+                <input type="text" id="s-subject-edit" placeholder="e.g. BNGA, ENGG, MATH...">
 
                 <label><b>Current Status:</b></label>
                 <select id="postGradStatus">
@@ -510,19 +241,19 @@
                 <label><b>Job / Institution Details:</b></label>
                 <input type="text" id="postGradDetails" placeholder="e.g. TCS / Calcutta University">
 
-                <label><b>Upload Proof Document (Offer Letter / ID Card / Admission Slip):</b></label>
+                <label><b>Upload Proof (Offer Letter / ID Card / Admission Slip):</b></label>
                 <input type="file" id="proofFile" accept="image/*,application/pdf">
-                <div id="current-proof-link" style="margin: 8px 0; font-size: 13px;"></div>
+                <div id="current-proof-link" style="margin: 8px 0;"></div>
 
-                <button onclick="saveCareerStatus()" style="background-color: var(--accent); margin-top: 15px;">Save Career Profile</button>
+                <button onclick="saveCareerStatus()" style="background-color: #1abc9c; margin-top: 10px;">Save Career Details</button>
                 <div id="career-msg" style="margin-top: 10px; font-weight: bold;"></div>
             </div>
-        </section>
+        </div>
 
-        <!-- 5. RESULT STATISTICS & INTERACTIVE CHARTS -->
-        <section id="stats" class="section">
+        <!-- 5. RESULT STATISTICS & INTERACTIVE PIE CHARTS -->
+        <div id="stats" class="section">
             <h2>Overall Result Statistics & Visual Analytics</h2>
-            <p class="section-desc">Interactive visual analytics and grade distributions filtered by Year, Course, and Subject.</p>
+            <p>Filter grade analytics and view interactive pie charts by Passout Year, Course, and Subject.</p>
 
             <div class="toolbar">
                 <div class="toolbar-group">
@@ -566,53 +297,29 @@
                 </div>
             </div>
 
-            <!-- METRIC CARDS -->
-            <div class="metrics-grid">
-                <div class="metric-card">
-                    <div style="font-size: 12px; color: var(--text-muted); font-weight:700;">TOTAL STUDENTS</div>
-                    <h3 id="statTotalStudents">0</h3>
-                </div>
-                <div class="metric-card">
-                    <div style="font-size: 12px; color: var(--text-muted); font-weight:700;">PASSED / QUALIFIED</div>
-                    <h3 id="statPassedStudents" style="color:var(--success);">0</h3>
-                </div>
-                <div class="metric-card">
-                    <div style="font-size: 12px; color: var(--text-muted); font-weight:700;">FAILED / NOT CLEARED</div>
-                    <h3 id="statFailedStudents" style="color:var(--danger);">0</h3>
-                </div>
-                <div class="metric-card">
-                    <div style="font-size: 12px; color: var(--text-muted); font-weight:700;">PASS PERCENTAGE</div>
-                    <h3 id="statPassPercentage" style="color:var(--primary);">0%</h3>
-                </div>
-            </div>
-
-            <!-- CHARTS GRID -->
+            <!-- PIE CHART CONTAINER -->
             <div class="chart-grid">
                 <div class="chart-box">
-                    <h3 style="font-size: 15px; margin-bottom: 15px;">Overall Grade Distribution</h3>
-                    <div style="height: 280px; display:flex; align-items:center; justify-content:center;">
-                        <canvas id="gradePieChart"></canvas>
-                    </div>
+                    <h3>Overall Grade Distribution</h3>
+                    <canvas id="gradePieChart"></canvas>
                 </div>
                 <div class="chart-box">
-                    <h3 style="font-size: 15px; margin-bottom: 15px;">Career Status Distribution</h3>
-                    <div style="height: 280px; display:flex; align-items:center; justify-content:center;">
-                        <canvas id="careerPieChart"></canvas>
-                    </div>
+                    <h3>Career Status Distribution</h3>
+                    <canvas id="careerPieChart"></canvas>
                 </div>
             </div>
 
             <div id="stats-container" style="margin-top:20px;"></div>
-        </section>
+        </div>
 
         <!-- 6. STUDENT MASTER DIRECTORY -->
-        <section id="directory" class="section">
+        <div id="directory" class="section">
             <h2>Student Master Directory</h2>
-            <p class="section-desc">Search, filter, export to Excel, or manage student records in real time.</p>
+            <p>Filter, export to Excel, or manage student records stored in the database.</p>
 
             <!-- LIVE SEARCH BAR -->
             <div style="margin-bottom: 15px;">
-                <input type="text" id="directorySearchInput" onkeyup="applyDirectoryFilters()" placeholder="🔍 Search by Registration No, Candidate Name, or Roll No..." style="font-size: 15px; padding: 14px; border: 2px solid var(--primary); background: #ffffff;">
+                <input type="text" id="directorySearchInput" onkeyup="applyDirectoryFilters()" placeholder="🔍 Live Search by Registration No, Name, or Roll No..." style="font-size: 15px; padding: 12px; border: 2px solid #2980b9;">
             </div>
             
             <div class="toolbar">
@@ -654,9 +361,9 @@
             <div id="directory-container">
                 <i>Loading directory...</i>
             </div>
-        </section>
+        </div>
 
-    </main>
+    </div>
 
     <script>
         let currentLoadedRegNo = "";
@@ -679,52 +386,6 @@
             if (el) el.value = (val !== undefined && val !== null) ? val : "";
         }
 
-        function setTodayDate(inputId) {
-            const today = new Date().toISOString().slice(0, 10);
-            setElementValue(inputId, today);
-        }
-
-        function updateFileNameDisplay() {
-            const input = document.getElementById('pdfFile');
-            const display = document.getElementById('fileSelectedName');
-            if (input.files.length > 0) {
-                const size = (input.files[0].size / (1024 * 1024)).toFixed(2);
-                display.innerText = `Selected: ${input.files[0].name} (${size} MB)`;
-            } else {
-                display.innerText = "";
-            }
-        }
-
-        // DRAG & DROP LOGIC
-        const dropzone = document.getElementById('pdfDropzone');
-        if (dropzone) {
-            ['dragenter', 'dragover'].forEach(eventName => {
-                dropzone.addEventListener(eventName, (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    dropzone.classList.add('dragover');
-                }, false);
-            });
-
-            ['dragleave', 'drop'].forEach(eventName => {
-                dropzone.addEventListener(eventName, (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    dropzone.classList.remove('dragover');
-                }, false);
-            });
-
-            dropzone.addEventListener('drop', (e) => {
-                const dt = e.dataTransfer;
-                const files = dt.files;
-                if (files.length > 0) {
-                    document.getElementById('pdfFile').files = files;
-                    updateFileNameDisplay();
-                }
-            }, false);
-        }
-
-        // PAGE LOAD AUTH
         window.onload = async function() {
             try {
                 const res = await fetch('/api/auth/me');
@@ -743,7 +404,7 @@
 
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
-            document.querySelectorAll('.nav-tab').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.sidebar ul li').forEach(li => li.classList.remove('active'));
             document.getElementById(tabId).classList.add('active');
             evt.currentTarget.classList.add('active');
         }
@@ -756,7 +417,7 @@
             const msg = document.getElementById("upload-msg");
             btn.disabled = true;
             btn.innerText = "Uploading... Please wait";
-            msg.innerHTML = "<div class='progress-card'>🚀 Starting extraction process...</div>";
+            msg.innerHTML = "<div class='progress-card'>🚀 Starting extraction...</div>";
             
             const formData = new FormData();
             formData.append("file", file);
@@ -771,9 +432,9 @@
                 if (statusInterval) clearInterval(statusInterval);
                 statusInterval = setInterval(pollUploadStatus, 2000);
             } catch (err) {
-                msg.innerHTML = `<div style="color:var(--danger); font-weight:bold; margin-top:15px;">Error uploading PDF: ${err.message}</div>`;
+                msg.innerHTML = `<div style="color:red; font-weight:bold;">Error uploading PDF: ${err.message}</div>`;
                 btn.disabled = false;
-                btn.innerText = "🚀 Start Upload & Background Extraction";
+                btn.innerText = "Upload & Process PDF";
             }
         }
 
@@ -786,14 +447,14 @@
 
                 if (status.is_processing) {
                     msg.innerHTML = `<div class="progress-card">
-                        <b style="color:#d35400;">⏳ Background Extraction in Progress:</b> ${status.processed_pages} / ${status.total_pages} pages completed (${status.extracted_count} student records saved so far)...
+                        <b style="color:#d35400;">⏳ Extraction in Progress:</b> ${status.processed_pages} / ${status.total_pages} pages completed (${status.extracted_count} student records saved so far)...
                     </div>`;
                 } else if (status.status_message.includes("EXTRACTION DONE")) {
-                    msg.innerHTML = `<div class="progress-card" style="border-color:#10b981; background:#d1fae5; color:#047857;">
+                    msg.innerHTML = `<div class="progress-card" style="border-color:#27ae60; background:#e8f8f5; color:#1e8449;">
                         <b>${status.status_message}</b>
                     </div>`;
                     btn.disabled = false;
-                    btn.innerText = "🚀 Start Upload & Background Extraction";
+                    btn.innerText = "Upload & Process PDF";
                     clearInterval(statusInterval);
                 }
             } catch (e) {}
@@ -832,7 +493,19 @@
                 setElementText("s-cgpa", data.student.cgpa);
                 setElementText("s-remarks", data.student.remarks || "Qualified");
 
-                renderSemesterTable(data.semesters, false);
+                // HIDE SEMESTER TABLE FOR FAILED / UNCLEARED CANDIDATES
+                const semTableContainer = document.getElementById("sem-table-container");
+                const failedNote = document.getElementById("failed-candidate-note");
+
+                if (data.student.grade.includes("Fail") || (data.student.remarks && data.student.remarks.toLowerCase().includes("not cleared")) || data.semesters.length === 0) {
+                    if (semTableContainer) semTableContainer.style.display = "none";
+                    if (failedNote) failedNote.style.display = "block";
+                } else {
+                    if (semTableContainer) semTableContainer.style.display = "block";
+                    if (failedNote) failedNote.style.display = "none";
+                    renderSemesterTable(data.semesters, false);
+                }
+
                 const profileArea = document.getElementById("profile-area");
                 if (profileArea) profileArea.style.display = "block";
             } catch (err) {
@@ -866,7 +539,7 @@
                         <td>${s.full_marks || "400"}</td>
                         <td>${s.marks || "-"}</td>
                         <td>${s.credit || "20"}</td>
-                        <td><b style="color:var(--primary);">${s.sgpa || "-"}</b></td>
+                        <td><b style="color:#2980b9;">${s.sgpa || "-"}</b></td>
                     </tr>`;
                 }
             });
@@ -896,6 +569,14 @@
                 const el = document.getElementById(id);
                 if (el) el.style.display = textType;
             });
+
+            // Show table in edit mode
+            const semTableContainer = document.getElementById("sem-table-container");
+            const failedNote = document.getElementById("failed-candidate-note");
+            if (isEditMode) {
+                if (semTableContainer) semTableContainer.style.display = "block";
+                if (failedNote) failedNote.style.display = "none";
+            }
 
             const saveBtnContainer = document.getElementById("save-edit-btn-container");
             if (saveBtnContainer) saveBtnContainer.style.display = isEditMode ? "block" : "none";
@@ -959,15 +640,15 @@
 
                 if (res.ok) {
                     if (msg) {
-                        msg.innerText = "✅ Profile & Marks updated successfully! Reflected in Statistics and Directory.";
-                        msg.style.color = "var(--success)";
+                        msg.innerText = "✅ Profile & Marks updated successfully!";
+                        msg.style.color = "green";
                     }
                     fetchStudentProfile();
                 } else throw new Error();
             } catch (err) {
                 if (msg) {
                     msg.innerText = "❌ Failed to save updates.";
-                    msg.style.color = "var(--danger)";
+                    msg.style.color = "red";
                 }
             }
         }
@@ -1117,7 +798,7 @@
                     const g = s.overall_grade || "Fail";
                     gradeCounts[g] = (gradeCounts[g] || 0) + 1;
 
-                    if (g.includes("Fail") or g.includes("Not Cleared")) {
+                    if (g.includes("Fail") || g.includes("Not Cleared")) {
                         failedCount++;
                     } else {
                         passedCount++;
@@ -1127,14 +808,12 @@
                     careerCounts[st] = (careerCounts[st] || 0) + 1;
                 });
 
-                // Update Metric Counters
                 setElementText("statTotalStudents", totalMatched);
                 setElementText("statPassedStudents", passedCount);
                 setElementText("statFailedStudents", failedCount);
                 const passPct = totalMatched > 0 ? ((passedCount / totalMatched) * 100).toFixed(1) + "%" : "0%";
                 setElementText("statPassPercentage", passPct);
 
-                // Render Grade Pie Chart
                 const gradeCtx = document.getElementById('gradePieChart').getContext('2d');
                 if (gradeChartInstance) gradeChartInstance.destroy();
                 gradeChartInstance = new Chart(gradeCtx, {
@@ -1149,7 +828,6 @@
                     options: { responsive: true, maintainAspectRatio: false }
                 });
 
-                // Render Career Pie Chart
                 const careerCtx = document.getElementById('careerPieChart').getContext('2d');
                 if (careerChartInstance) careerChartInstance.destroy();
                 careerChartInstance = new Chart(careerCtx, {
