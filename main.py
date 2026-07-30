@@ -33,14 +33,12 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
-# --- MULTI-USER AUTHENTICATION & ROLES ---
+# --- SECURITY (ADMIN LOGIN) ---
 security = HTTPBasic()
 
-# Admin Credentials
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cuadmin123")
 
-# Normal Users Credentials (All permissions EXCEPT delete)
 USER1_USERNAME = os.getenv("USER1_USERNAME", "staff1")
 USER1_PASSWORD = os.getenv("USER1_PASSWORD", "staff123")
 
@@ -51,15 +49,12 @@ def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
     username = credentials.username
     password = credentials.password
 
-    # Check Admin
     if secrets.compare_digest(username, ADMIN_USERNAME) and secrets.compare_digest(password, ADMIN_PASSWORD):
         return {"username": username, "role": "admin"}
 
-    # Check Normal User 1
     if secrets.compare_digest(username, USER1_USERNAME) and secrets.compare_digest(password, USER1_PASSWORD):
         return {"username": username, "role": "user"}
 
-    # Check Normal User 2
     if secrets.compare_digest(username, USER2_USERNAME) and secrets.compare_digest(password, USER2_PASSWORD):
         return {"username": username, "role": "user"}
 
@@ -145,7 +140,105 @@ bg_upload_status = {
     "filename": ""
 }
 
-# --- UNTOUCHED OPENAI GPT-4o VISION PARSER ---
+# --- 1D Y-OVERLAP HORIZONTAL WORD RECONSTRUCTOR ---
+
+def group_words_into_horizontal_lines(words, y_threshold=8):
+    """
+    Groups extracted PDF word bounding boxes by 1D Y-overlap to reconstruct 
+    perfect horizontal lines regardless of baseline tilt or font padding.
+    """
+    if not words:
+        return []
+
+    words_sorted = sorted(words, key=lambda w: w[1]) # Sort top-to-bottom by y0
+
+    lines = []
+    for w in words_sorted:
+        placed = False
+        y0, y1 = w[1], w[3]
+        y_center = (y0 + y1) / 2.0
+
+        for line in lines:
+            line_y_avg = sum((item[1] + item[3]) / 2.0 for item in line) / len(line)
+            if abs(y_center - line_y_avg) <= y_threshold:
+                line.append(w)
+                placed = True
+                break
+
+        if not placed:
+            lines.append([w])
+
+    formatted_lines = []
+    for line in lines:
+        line_sorted = sorted(line, key=lambda w: w[0]) # Sort left-to-right by x0
+        line_text = " ".join(w[4] for w in line_sorted)
+        formatted_lines.append(line_text)
+
+    return formatted_lines
+
+def extract_summary_table_text_pymupdf(page):
+    rect = page.rect
+    # Target summary table region (45% to 88% height)
+    table_rect = fitz.Rect(0, rect.height * 0.45, rect.width, rect.height * 0.88)
+    words = page.get_text("words", clip=table_rect)
+    
+    if not words:
+        return page.get_text("text", clip=table_rect) or ""
+
+    lines = group_words_into_horizontal_lines(words)
+    return "\n".join(lines)
+
+# --- BULLETPROOF HEADER PARSERS ---
+
+def extract_reg_no_bulletproof(text: str):
+    if not text: return None, "Text empty"
+    t = re.sub(r'[—–_~]', '-', text)
+    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
+
+    match = re.search(r'(?:Registration|Regn|Reg|Registra)[^\d]{0,15}([0-9\-\s\.\/]{13,22})', t_fixed, re.IGNORECASE)
+    if match:
+        digits = re.sub(r'\D', '', match.group(1))
+        if len(digits) >= 13:
+            d = digits[:13]
+            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "Reg Label"
+
+    all_digits_clusters = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
+    if all_digits_clusters:
+        d = all_digits_clusters[0]
+        return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "13-Digit Cluster"
+
+    return None, "No 13-digit pattern found"
+
+def extract_roll_no_bulletproof(text: str):
+    if not text: return "Unknown"
+    t = re.sub(r'[—–_~]', '-', text)
+    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
+
+    all_digits_clusters = re.findall(r'\b\d{12}\b', re.sub(r'\D', ' ', t_fixed))
+    if all_digits_clusters:
+        d = all_digits_clusters[0]
+        return f"{d[:6]}-{d[6:8]}-{d[8:]}"
+
+    return "Unknown"
+
+def extract_name_bulletproof(text: str):
+    if not text: return "Unknown Student"
+    match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text, re.IGNORECASE)
+    if match:
+        raw_name = re.sub(r'[^A-Za-z\s\.]', '', match.group(1)).strip()
+        if len(raw_name) > 2: return raw_name
+    return "Unknown Student"
+
+def extract_course(text: str):
+    if not text: return "B.A. (Honours) Examination"
+    match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text, re.IGNORECASE)
+    if match:
+        raw_course = match.group(0).strip()
+        cleaned_course = re.sub(r'Semester\s*[\-\–\_]?\s*(VI|V|IV|III|II|I|\d+)', '', raw_course, flags=re.IGNORECASE)
+        return re.sub(r'\s+', ' ', cleaned_course).strip()
+    return "B.A. (Honours) Examination"
+
+# --- OPENAI GPT-4o VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
     pix = page.get_pixmap(dpi=200)
@@ -218,82 +311,9 @@ def parse_marksheet_with_openai_vision(page):
             else:
                 raise e
 
-# --- LOCAL FALLBACK PARSER ---
+# --- LOCAL RECONSTRUCTED TABLE PARSER ---
 
-def extract_text_rows_from_rect(page, rect_box):
-    try:
-        words = page.get_text("words", clip=rect_box)
-        if not words: return ""
-        sorted_words = sorted(words, key=lambda w: (round(w[1] / 5.0), w[0]))
-
-        lines = []
-        current_line = []
-        last_y = None
-
-        for w in sorted_words:
-            x0, y0, x1, y1, word = w[0], w[1], w[2], w[3], w[4]
-            if last_y is None or abs(y0 - last_y) <= 5:
-                current_line.append(word)
-                last_y = y0
-            else:
-                lines.append(" ".join(current_line))
-                current_line = [word]
-                last_y = y0
-
-        if current_line: lines.append(" ".join(current_line))
-        return "\n".join(lines)
-    except Exception:
-        return page.get_text("text", clip=rect_box) or ""
-
-def extract_reg_no_bulletproof(text: str):
-    if not text: return None, "Text empty"
-    t = re.sub(r'[—–_~]', '-', text)
-    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
-
-    match = re.search(r'(?:Registration|Regn|Reg|Registra)[^\d]{0,15}([0-9\-\s\.\/]{13,22})', t_fixed, re.IGNORECASE)
-    if match:
-        digits = re.sub(r'\D', '', match.group(1))
-        if len(digits) >= 13:
-            d = digits[:13]
-            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "Reg Label"
-
-    all_digits_clusters = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
-    if all_digits_clusters:
-        d = all_digits_clusters[0]
-        return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "13-Digit Cluster"
-
-    return None, "No 13-digit pattern found"
-
-def extract_roll_no_bulletproof(text: str):
-    if not text: return "Unknown"
-    t = re.sub(r'[—–_~]', '-', text)
-    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
-
-    all_digits_clusters = re.findall(r'\b\d{12}\b', re.sub(r'\D', ' ', t_fixed))
-    if all_digits_clusters:
-        d = all_digits_clusters[0]
-        return f"{d[:6]}-{d[6:8]}-{d[8:]}"
-
-    return "Unknown"
-
-def extract_name_bulletproof(text: str):
-    if not text: return "Unknown Student"
-    match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text, re.IGNORECASE)
-    if match:
-        raw_name = re.sub(r'[^A-Za-z\s\.]', '', match.group(1)).strip()
-        if len(raw_name) > 2: return raw_name
-    return "Unknown Student"
-
-def extract_course(text: str):
-    if not text: return "B.A. (Honours) Examination"
-    match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text, re.IGNORECASE)
-    if match:
-        raw_course = match.group(0).strip()
-        cleaned_course = re.sub(r'Semester\s*[\-\–\_]?\s*(VI|V|IV|III|II|I|\d+)', '', raw_course, flags=re.IGNORECASE)
-        return re.sub(r'\s+', ' ', cleaned_course).strip()
-    return "B.A. (Honours) Examination"
-
-def parse_summary_table_local(table_text: str):
+def parse_reconstructed_summary_table(table_text: str):
     sems = []
     cgpa = "N.A."
     grade = "Fail / Semester Not Cleared"
@@ -319,8 +339,8 @@ def parse_summary_table_local(table_text: str):
 
                 if years and integers and floats:
                     s_yr = years[0]
-                    s_fm = integers[0] if len(integers) >= 1 else "400"
-                    s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
+                    s_fm = integers[0] if int(integers[0]) in [400, 500] else "400"
+                    s_marks = integers[1] if (len(integers) >= 2 and integers[0] in ["400", "500"]) else integers[0]
                     s_cred = integers[2] if len(integers) >= 3 else "20"
                     s_sgpa = floats[0]
 
@@ -426,7 +446,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         if "429" in str(ai_err) or "rate" in str(ai_err) or "quota" in str(ai_err):
                             ai_quota_exceeded = True
 
-                # --- STRATEGY 2: LOCAL FALLBACK ---
+                # --- STRATEGY 2: LOCAL FALLBACK WITH 1D Y-OVERLAP CLUSTERING ---
                 if not ai_client or ai_quota_exceeded or not reg_no:
                     full_text = page.get_text("text") or ""
                     reg_no, match_method = extract_reg_no_bulletproof(full_text)
@@ -441,11 +461,8 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     subj_match = re.search(r'\b([A-Z]{3,4})\-[A-Z0-9]+\b', full_text)
                     subject = subj_match.group(1).upper() if subj_match else "BNGA"
 
-                    rect = page.rect
-                    table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
-                    table_text = extract_text_rows_from_rect(page, table_rect)
-
-                    normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
+                    table_text = extract_summary_table_text_pymupdf(page)
+                    normalized_semesters, overall_cgpa, overall_grade, remarks = parse_reconstructed_summary_table(table_text)
 
                 # Database Upsert
                 existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -586,7 +603,7 @@ def startup_db_setup():
 
 # --- FRONTEND ROUTE ---
 @app.get("/")
-def serve_frontend(user: dict = Depends(get_current_user)):
+def serve_frontend(username: str = Depends(authenticate_admin)):
     return FileResponse("index.html")
 
 # --- AUTH INFO ENDPOINT ---
