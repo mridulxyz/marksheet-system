@@ -24,6 +24,11 @@ try:
 except ImportError:
     pdfplumber = None
 
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None
+
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -33,7 +38,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
-# --- SECURITY (ADMIN LOGIN) ---
+# --- SECURITY (MULTI-USER AUTHENTICATION) ---
 security = HTTPBasic()
 
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
@@ -140,7 +145,22 @@ bg_upload_status = {
     "filename": ""
 }
 
-# --- FLAGSHIP GPT-4o VISION PARSER ---
+# --- ANCHOR SEARCH FOR DYNAMIC CROP ---
+
+def get_summary_table_crop_rect(page):
+    rect = page.rect
+    hits = page.search_for("Cumulative Credit") or page.search_for("Semester Credit") or page.search_for("Full Marks")
+    
+    if hits:
+        summary_hits = [h for h in hits if h.y0 > rect.height * 0.45]
+        if summary_hits:
+            y0 = max(0, summary_hits[0].y0 - 20)
+            y1 = min(rect.height, y0 + (rect.height * 0.35))
+            return fitz.Rect(0, y0, rect.width, y1)
+
+    return fitz.Rect(0, rect.height * 0.56, rect.width, rect.height * 0.88)
+
+# --- OPENAI GPT-4o VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
     pix = page.get_pixmap(dpi=200)
@@ -437,7 +457,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     subject = subj_match.group(1).upper() if subj_match else "BNGA"
 
                     rect = page.rect
-                    table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
+                    table_rect = get_summary_table_crop_rect(page)
                     table_text = extract_text_rows_from_rect(page, table_rect)
 
                     normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
