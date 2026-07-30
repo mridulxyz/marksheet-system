@@ -24,11 +24,6 @@ try:
 except ImportError:
     pdfplumber = None
 
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
-
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -38,7 +33,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
-# --- SECURITY (MULTI-USER AUTHENTICATION) ---
+# --- SECURITY (ADMIN LOGIN) ---
 security = HTTPBasic()
 
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
@@ -145,22 +140,7 @@ bg_upload_status = {
     "filename": ""
 }
 
-# --- ANCHOR SEARCH FOR DYNAMIC CROP ---
-
-def get_summary_table_crop_rect(page):
-    rect = page.rect
-    hits = page.search_for("Cumulative Credit") or page.search_for("Semester Credit") or page.search_for("Full Marks")
-    
-    if hits:
-        summary_hits = [h for h in hits if h.y0 > rect.height * 0.45]
-        if summary_hits:
-            y0 = max(0, summary_hits[0].y0 - 20)
-            y1 = min(rect.height, y0 + (rect.height * 0.35))
-            return fitz.Rect(0, y0, rect.width, y1)
-
-    return fitz.Rect(0, rect.height * 0.56, rect.width, rect.height * 0.88)
-
-# --- OPENAI GPT-4o VISION PARSER ---
+# --- FLAGSHIP GPT-4o VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
     pix = page.get_pixmap(dpi=200)
@@ -189,17 +169,20 @@ def parse_marksheet_with_openai_vision(page):
       ]
     }
 
-    VERIFICATION RULES FOR 100% ACCURACY:
+    CRITICAL EXTRACTION RULES:
     1. SUMMARY TABLE LOCATION: Look at the table near the bottom labeled 'Semester', 'Year', 'Full Marks', 'Marks Obtained', 'Semester Credit', 'SGPA', 'Cumulative Credit', 'CGPA', 'Letter Grade', 'Remarks'.
-    2. DO NOT SKIP ANY SEMESTER ROWS: Carefully read every row from Semester I to Semester VI. Do NOT omit Semester IV or any other row if present in the summary table!
-    3. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from the course component tables above (e.g. BNGA-CC13, CC14, DSE-A4, DSE-B4). Read ONLY from the summary table at the bottom.
-    4. ONLY PRESENT SEMESTERS: If a semester is empty/blank in the table (e.g. Sem IV, V, VI blank for a failed student), do NOT include it in the 'semesters' array!
-    5. SUBJECT CODE: Extract subject code prefix from course code (e.g. 'BNGA' from BNGA-CC13 or 'ENGG' from ENGG-CC13). Default to 'BNGA' if not clearly stated.
-    6. OVERALL GRADE: Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI' of the bottom summary table (e.g. B+, A+, A, B, C+, C, D, O). Never read words like 'Good' or status 'P'.
-    7. OVERALL CGPA: Read 'overall_cgpa' ONLY from column 'CGPA' in row 'VI' of the bottom summary table (e.g. 6.819).
-    8. IF SEMESTER NOT CLEARED: If 'Semester not cleared' is printed in Remarks, set 'overall_cgpa': 'N.A.' and 'overall_grade': 'Fail / Semester Not Cleared'.
-    9. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
-    10. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
+    2. GRADED CANDIDATES ONLY: If the student PASSED (Remarks = 'Qualified' or 'Qualified with Honours'):
+       - Extract ALL semester rows (I, II, III, IV, V, VI) with exact Year, Full Marks, Marks Obtained, Credit, SGPA.
+       - Read 'overall_cgpa' ONLY from column 'CGPA' in row 'VI' (e.g. 6.819).
+       - Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI' (e.g. B+, A+, A, B, C+, C, D, O).
+    3. FAILED / UNCLEARED CANDIDATES: If Remarks says 'Semester not cleared' or 'not cleared':
+       - Set "overall_cgpa": "N.A."
+       - Set "overall_grade": "Fail / Semester Not Cleared"
+       - Set "semesters": [] (DO NOT EXTRACT ANY SEMESTER BREAKDOWN ROWS FOR FAILED CANDIDATES!).
+    4. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from top course component tables (e.g. BNGA-CC13, CC14, DSE-A4, DSE-B4).
+    5. SUBJECT CODE: Extract subject code prefix from course code (e.g. 'BNGA' from BNGA-CC13 or 'ENGG' from ENGG-CC13).
+    6. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
+    7. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
     """
 
     max_retries = 3
@@ -322,6 +305,10 @@ def parse_summary_table_local(table_text: str):
     if rem_match:
         remarks = rem_match.group(1).strip()
 
+    # IF FAILED, DO NOT EXTRACT SEMESTERS
+    if is_not_cleared:
+        return [], "N.A.", "Fail / Semester Not Cleared", remarks
+
     lines = [l.strip() for l in text_clean.splitlines() if l.strip()]
     sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
 
@@ -352,13 +339,12 @@ def parse_summary_table_local(table_text: str):
     sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
     sems = sorted(sems, key=lambda x: sem_order.get(x["semester"], 99))
 
-    if not is_not_cleared:
-        all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
-        valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
-        if valid_gpas: cgpa = valid_gpas[-1]
+    all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
+    valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
+    if valid_gpas: cgpa = valid_gpas[-1]
 
-        grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
-        if grade_m: grade = grade_m.group(1)
+    grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
+    if grade_m: grade = grade_m.group(1)
 
     return sems, cgpa, grade, remarks
 
@@ -411,32 +397,34 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         overall_cgpa = data.get("overall_cgpa", "N.A.")
                         overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
 
-                        if "not cleared" in str(remarks).lower() or overall_grade.lower() in ["none", "null", "n.a.", ""]:
+                        # FOR FAILED / UNCLEARED CANDIDATES: DO NOT STORE SEMESTERS!
+                        if "not cleared" in str(remarks).lower() or "fail" in str(overall_grade).lower():
                             overall_cgpa = "N.A."
                             overall_grade = "Fail / Semester Not Cleared"
+                            normalized_semesters = []
+                        else:
+                            raw_semesters = data.get("semesters", [])
+                            for sem in raw_semesters:
+                                if not isinstance(sem, dict): continue
+                                raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
+                                raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
+                                if not raw_s: continue
 
-                        raw_semesters = data.get("semesters", [])
-                        for sem in raw_semesters:
-                            if not isinstance(sem, dict): continue
-                            raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
-                            raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
-                            if not raw_s: continue
+                                yr_val = str(sem.get("year") or sem.get("exam_year") or "").strip()
+                                sgpa_val = str(sem.get("sgpa") or sem.get("gpa") or "").strip()
+                                marks_val = str(sem.get("marks") or sem.get("marks_obtained") or "").strip()
 
-                            yr_val = str(sem.get("year") or sem.get("exam_year") or "").strip()
-                            sgpa_val = str(sem.get("sgpa") or sem.get("gpa") or "").strip()
-                            marks_val = str(sem.get("marks") or sem.get("marks_obtained") or "").strip()
+                                if (not yr_val or yr_val in ["-", "N.A.", "None", ""]) and (not sgpa_val or sgpa_val in ["-", "N.A.", "None", ""]):
+                                    continue
 
-                            if (not yr_val or yr_val in ["-", "N.A.", "None", ""]) and (not sgpa_val or sgpa_val in ["-", "N.A.", "None", ""]):
-                                continue
-
-                            normalized_semesters.append({
-                                "semester": raw_s,
-                                "year": yr_val if yr_val not in ["-", "N.A."] else "-",
-                                "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
-                                "marks": marks_val if marks_val not in ["-", "N.A."] else "-",
-                                "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
-                                "sgpa": sgpa_val if sgpa_val not in ["-", "N.A."] else "N.A."
-                            })
+                                normalized_semesters.append({
+                                    "semester": raw_s,
+                                    "year": yr_val if yr_val not in ["-", "N.A."] else "-",
+                                    "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
+                                    "marks": marks_val if marks_val not in ["-", "N.A."] else "-",
+                                    "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
+                                    "sgpa": sgpa_val if sgpa_val not in ["-", "N.A."] else "N.A."
+                                })
                     except Exception as ai_err:
                         if "429" in str(ai_err) or "rate" in str(ai_err) or "quota" in str(ai_err):
                             ai_quota_exceeded = True
@@ -457,7 +445,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     subject = subj_match.group(1).upper() if subj_match else "BNGA"
 
                     rect = page.rect
-                    table_rect = get_summary_table_crop_rect(page)
+                    table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
                     table_text = extract_text_rows_from_rect(page, table_rect)
 
                     normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
@@ -601,7 +589,7 @@ def startup_db_setup():
 
 # --- FRONTEND ROUTE ---
 @app.get("/")
-def serve_frontend(user: dict = Depends(get_current_user)):
+def serve_frontend(username: str = Depends(authenticate_admin)):
     return FileResponse("index.html")
 
 # --- AUTH INFO ENDPOINT ---
