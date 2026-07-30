@@ -511,4 +511,299 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
         if doc: doc.close()
         db.commit()
         
-        bg_upload_status["is_processing"]
+        bg_upload_status["is_processing"] = False
+        bg_upload_status["status_message"] = f"🎉 ✅ EXTRACTION DONE! Successfully extracted {extracted_count} student record(s) from {total_pages} pages into the database."
+    except Exception as e:
+        db.rollback()
+        bg_upload_status["is_processing"] = False
+        bg_upload_status["status_message"] = f"❌ Error during background extraction: {str(e)}"
+    finally:
+        db.close()
+        if os.path.exists(temp_pdf_path):
+            os.remove(temp_pdf_path)
+
+# --- FASTAPI APP SETUP ---
+app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+def get_db():
+    db = SessionLocal()
+    try: yield db
+    finally: db.close()
+
+# --- SAFE STARTUP DB CREATION & MIGRATION ---
+@app.on_event("startup")
+def startup_db_setup():
+    try:
+        Base.metadata.create_all(bind=engine)
+        with engine.begin() as conn:
+            if "postgresql" in DATABASE_URL:
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS course VARCHAR DEFAULT 'Unknown Course';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS subject VARCHAR DEFAULT 'BNGA';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS remarks VARCHAR DEFAULT 'Qualified';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS marksheet_received BOOLEAN DEFAULT FALSE;"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS certificate_received BOOLEAN DEFAULT FALSE;"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS marksheet_issue_date VARCHAR DEFAULT '';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS certificate_issue_date VARCHAR DEFAULT '';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS issued_by VARCHAR DEFAULT '';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_status VARCHAR DEFAULT 'Unknown';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_details VARCHAR DEFAULT '';"))
+                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS proof_document_path VARCHAR DEFAULT '';"))
+                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS full_marks VARCHAR DEFAULT '400';"))
+                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS credit VARCHAR DEFAULT '20';"))
+                conn.execute(text("UPDATE students SET post_grad_status = 'Unknown' WHERE post_grad_status = 'Unemployed';"))
+            elif "sqlite" in DATABASE_URL:
+                columns = [row[1] for row in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
+                if columns:
+                    if "course" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN course VARCHAR DEFAULT 'Unknown Course';"))
+                    if "subject" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN subject VARCHAR DEFAULT 'BNGA';"))
+                    if "remarks" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN remarks VARCHAR DEFAULT 'Qualified';"))
+                    if "marksheet_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN marksheet_received BOOLEAN DEFAULT 0;"))
+                    if "certificate_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN certificate_received BOOLEAN DEFAULT 0;"))
+                    if "marksheet_issue_date" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN marksheet_issue_date VARCHAR;"))
+                    if "certificate_issue_date" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN certificate_issue_date VARCHAR;"))
+                    if "issued_by" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN issued_by VARCHAR;"))
+                    if "post_grad_status" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_status VARCHAR DEFAULT 'Unknown';"))
+                    if "post_grad_details" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_details VARCHAR;"))
+                    if "proof_document_path" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN proof_document_path VARCHAR;"))
+                
+                sem_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(semester_records);")).fetchall()]
+                if sem_columns:
+                    if "full_marks" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN full_marks VARCHAR DEFAULT '400';"))
+                    if "credit" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN credit VARCHAR DEFAULT '20';"))
+                conn.execute(text("UPDATE students SET post_grad_status = 'Unknown' WHERE post_grad_status = 'Unemployed';"))
+    except Exception as e:
+        print(f"Startup Migration Note: {e}")
+
+# --- FRONTEND ROUTE ---
+@app.get("/")
+def serve_frontend(username: str = Depends(authenticate_admin)):
+    return FileResponse("index.html")
+
+# --- AUTH INFO ENDPOINT ---
+@app.get("/api/auth/me")
+def get_auth_me(user: dict = Depends(get_current_user)):
+    return {"username": user["username"], "role": user["role"]}
+
+# --- API ENDPOINTS ---
+
+@app.get("/api/admin/upload-status")
+def get_upload_status(user: dict = Depends(get_current_user)):
+    return bg_upload_status
+
+@app.post("/api/admin/upload-marksheet")
+async def upload_marksheet(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...), 
+    selected_course: str = Form("AUTO"),
+    user: dict = Depends(get_current_user)
+):
+    temp_pdf_path = f"temp_{secrets.token_hex(4)}_{file.filename}"
+    with open(temp_pdf_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    doc = fitz.open(temp_pdf_path) if fitz else []
+    total_pages = len(doc)
+    doc.close()
+
+    background_tasks.add_task(process_large_pdf_in_background, temp_pdf_path, selected_course)
+
+    return {
+        "message": f"🚀 Successfully started background processing for {total_pages} page(s)! Refresh Tab 6 (Student Directory) to see extracted records in real-time."
+    }
+
+@app.get("/api/student/{reg_no}")
+def get_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    if not student: 
+        raise HTTPException(status_code=404, detail="Student record not found.")
+    
+    sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
+    
+    passout_year = "Unknown"
+    for s in sems:
+        if s.semester in ["VI", "6", "VI."] and s.year:
+            passout_year = s.year
+
+    return {
+        "student": {
+            "name": student.name, 
+            "reg_no": student.registration_no, 
+            "roll_no": student.roll_no,
+            "admission_year": student.admission_year, 
+            "passout_year": passout_year, 
+            "course": student.course,
+            "subject": student.subject or "BNGA",
+            "cgpa": student.overall_cgpa, 
+            "grade": student.overall_grade,
+            "remarks": student.remarks or "Qualified",
+            "marksheet_received": student.marksheet_received, 
+            "certificate_received": student.certificate_received,
+            "marksheet_issue_date": student.marksheet_issue_date or "",
+            "certificate_issue_date": student.certificate_issue_date or "",
+            "issued_by": student.issued_by or "",
+            "status": student.post_grad_status or "Unknown", 
+            "details": student.post_grad_details, 
+            "proof": student.proof_document_path
+        },
+        "semesters": [
+            {
+                "semester": s.semester, 
+                "year": s.year, 
+                "full_marks": s.full_marks or "400",
+                "marks": s.marks_obtained, 
+                "credit": s.credit or "20",
+                "sgpa": s.sgpa
+            } 
+            for s in sems
+        ]
+    }
+
+# Full Manual Profile & Marks Update (Menu 2 Edit Provision)
+@app.post("/api/admin/update-profile-full/{reg_no}")
+async def update_student_profile_full(
+    reg_no: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
+    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    if not student: 
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    student.name = payload.get("name", student.name)
+    student.roll_no = payload.get("roll_no", student.roll_no)
+    student.course = payload.get("course", student.course)
+    student.subject = payload.get("subject", student.subject)
+    student.overall_cgpa = payload.get("cgpa", student.overall_cgpa)
+    student.overall_grade = payload.get("grade", student.overall_grade)
+    student.remarks = payload.get("remarks", student.remarks)
+
+    # Update Semesters
+    new_semesters = payload.get("semesters", [])
+    if new_semesters:
+        db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+        for sem in new_semesters:
+            db.add(SemesterRecord(
+                registration_no=reg_no,
+                semester=sem.get("semester"),
+                year=sem.get("year"),
+                full_marks=sem.get("full_marks", "400"),
+                marks_obtained=sem.get("marks"),
+                credit=sem.get("credit", "20"),
+                sgpa=sem.get("sgpa")
+            ))
+
+    db.commit()
+    return {"message": "Student profile and marks updated successfully!"}
+
+# Detailed Document Issuance Update (Menu 3)
+@app.post("/api/admin/update-issuance-detailed/{reg_no}")
+async def update_issuance_detailed(
+    reg_no: str,
+    marksheet_received: bool = Form(...),
+    certificate_received: bool = Form(...),
+    marksheet_issue_date: str = Form(""),
+    certificate_issue_date: str = Form(""),
+    issued_by: str = Form(""),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
+    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    if not student: 
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    student.marksheet_received = marksheet_received
+    student.certificate_received = certificate_received
+    student.marksheet_issue_date = marksheet_issue_date
+    student.certificate_issue_date = certificate_issue_date
+    student.issued_by = issued_by
+
+    db.commit()
+    return {"message": "Issuance details updated successfully!"}
+
+# ADMIN ONLY: Delete Single Student
+@app.delete("/api/admin/student/{reg_no}")
+def delete_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(require_admin)):
+    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    if not student: 
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+    db.delete(student)
+    db.commit()
+    return {"message": f"Student {reg_no} deleted successfully"}
+
+# ADMIN ONLY: Clear All Database Records
+@app.post("/api/admin/clear-all-students")
+def clear_all_students(db: Session = Depends(get_db), user: dict = Depends(require_admin)):
+    db.query(SemesterRecord).delete()
+    db.query(Student).delete()
+    db.commit()
+    return {"message": "All student records cleared successfully"}
+
+@app.post("/api/admin/update-status/{reg_no}")
+async def update_student_status(
+    reg_no: str,
+    course: str = Form(...),
+    marksheet_received: bool = Form(...),
+    certificate_received: bool = Form(...),
+    status: str = Form(...),
+    details: str = Form(""),
+    proof_file: UploadFile = File(None),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
+    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    if not student: 
+        raise HTTPException(status_code=404, detail="Student record not found.")
+
+    student.course = course
+    student.marksheet_received = marksheet_received
+    student.certificate_received = certificate_received
+    student.post_grad_status = status
+    student.post_grad_details = details
+
+    if proof_file:
+        safe_filename = f"{reg_no}_proof.{proof_file.filename.split('.')[-1]}"
+        file_path = os.path.join("uploads", safe_filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(proof_file.file, buffer)
+        student.proof_document_path = file_path
+
+    db.commit()
+    return {"message": "Record updated successfully!"}
+
+@app.get("/api/admin/grade-stats")
+def get_grade_stats(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    students = db.query(Student).all()
+    
+    result = {}
+    for s in students:
+        c = s.course if s.course else "Unknown Course"
+        g = s.overall_grade if s.overall_grade else "Fail/NA"
+        sub = s.subject if s.subject else "Unknown Subject"
+        pass_yr = "Unknown"
+        
+        for sem in s.semesters:
+            if sem.semester in ["VI", "6", "VI."] and sem.year:
+                pass_yr = sem.year
+
+        if c not in result: result[c] = {}
+        if g not in result[c]: result[c][g] = 0
+        result[c][g] += 1
+
+    return result
+
+@app.get("/api/admin/all-students")
+def get_all_students(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    return db.query(Student).all()
