@@ -33,21 +33,49 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
 
-# --- SECURITY (ADMIN LOGIN) ---
+# --- MULTI-USER AUTHENTICATION & ROLES ---
 security = HTTPBasic()
+
+# Admin Credentials
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cuadmin123")
 
-def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_username = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
-    correct_password = secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
-    if not (correct_username and correct_password):
+# Normal Users Credentials (All permissions EXCEPT delete)
+USER1_USERNAME = os.getenv("USER1_USERNAME", "staff1")
+USER1_PASSWORD = os.getenv("USER1_PASSWORD", "staff123")
+
+USER2_USERNAME = os.getenv("USER2_USERNAME", "staff2")
+USER2_PASSWORD = os.getenv("USER2_PASSWORD", "staff123")
+
+def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
+    username = credentials.username
+    password = credentials.password
+
+    # Check Admin
+    if secrets.compare_digest(username, ADMIN_USERNAME) and secrets.compare_digest(password, ADMIN_PASSWORD):
+        return {"username": username, "role": "admin"}
+
+    # Check Normal User 1
+    if secrets.compare_digest(username, USER1_USERNAME) and secrets.compare_digest(password, USER1_PASSWORD):
+        return {"username": username, "role": "user"}
+
+    # Check Normal User 2
+    if secrets.compare_digest(username, USER2_USERNAME) and secrets.compare_digest(password, USER2_PASSWORD):
+        return {"username": username, "role": "user"}
+
+    raise HTTPException(
+        status_code=401,
+        detail="Incorrect username or password",
+        headers={"WWW-Authenticate": "Basic"},
+    )
+
+def require_admin(user: dict = Depends(get_current_user)):
+    if user["role"] != "admin":
         raise HTTPException(
-            status_code=401,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
+            status_code=403,
+            detail="Admin permissions required to perform delete operations."
         )
-    return credentials.username
+    return user
 
 # --- OPENAI CLIENT SETUP ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -75,7 +103,7 @@ class Student(Base):
     name = Column(String)
     admission_year = Column(String)
     course = Column(String, default="Unknown Course")
-    subject = Column(String, default="BNGA") # Subject code e.g. BNGA
+    subject = Column(String, default="BNGA")
     overall_cgpa = Column(String) 
     overall_grade = Column(String)
     remarks = Column(String, default="Qualified")
@@ -117,7 +145,7 @@ bg_upload_status = {
     "filename": ""
 }
 
-# --- UNTOUCHED FLAGSHIP GPT-4o VISION PARSER ---
+# --- UNTOUCHED OPENAI GPT-4o VISION PARSER ---
 
 def parse_marksheet_with_openai_vision(page):
     pix = page.get_pixmap(dpi=200)
@@ -410,7 +438,6 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     name = extract_name_bulletproof(full_text)
                     course = selected_course if (selected_course and selected_course != "AUTO") else extract_course(full_text)
 
-                    # Extract subject code e.g. BNGA from BNGA-CC13
                     subj_match = re.search(r'\b([A-Z]{3,4})\-[A-Z0-9]+\b', full_text)
                     subject = subj_match.group(1).upper() if subj_match else "BNGA"
 
@@ -559,13 +586,18 @@ def startup_db_setup():
 
 # --- FRONTEND ROUTE ---
 @app.get("/")
-def serve_frontend(username: str = Depends(authenticate_admin)):
+def serve_frontend(user: dict = Depends(get_current_user)):
     return FileResponse("index.html")
+
+# --- AUTH INFO ENDPOINT ---
+@app.get("/api/auth/me")
+def get_auth_me(user: dict = Depends(get_current_user)):
+    return {"username": user["username"], "role": user["role"]}
 
 # --- API ENDPOINTS ---
 
 @app.get("/api/admin/upload-status")
-def get_upload_status(user: str = Depends(authenticate_admin)):
+def get_upload_status(user: dict = Depends(get_current_user)):
     return bg_upload_status
 
 @app.post("/api/admin/upload-marksheet")
@@ -573,7 +605,7 @@ async def upload_marksheet(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...), 
     selected_course: str = Form("AUTO"),
-    user: str = Depends(authenticate_admin)
+    user: dict = Depends(get_current_user)
 ):
     temp_pdf_path = f"temp_{secrets.token_hex(4)}_{file.filename}"
     with open(temp_pdf_path, "wb") as buffer:
@@ -590,7 +622,7 @@ async def upload_marksheet(
     }
 
 @app.get("/api/student/{reg_no}")
-def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
+def get_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if not student: 
         raise HTTPException(status_code=404, detail="Student record not found.")
@@ -636,13 +668,13 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(
         ]
     }
 
-# NEW: Full Manual Profile & Marks Update (Menu 2 Edit Provision)
+# Full Manual Profile & Marks Update (Menu 2 Edit Provision)
 @app.post("/api/admin/update-profile-full/{reg_no}")
 async def update_student_profile_full(
     reg_no: str,
     payload: dict,
     db: Session = Depends(get_db),
-    user: str = Depends(authenticate_admin)
+    user: dict = Depends(get_current_user)
 ):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if not student: 
@@ -674,7 +706,7 @@ async def update_student_profile_full(
     db.commit()
     return {"message": "Student profile and marks updated successfully!"}
 
-# NEW: Detailed Document Issuance Update (Menu 3)
+# Detailed Document Issuance Update (Menu 3)
 @app.post("/api/admin/update-issuance-detailed/{reg_no}")
 async def update_issuance_detailed(
     reg_no: str,
@@ -684,7 +716,7 @@ async def update_issuance_detailed(
     certificate_issue_date: str = Form(""),
     issued_by: str = Form(""),
     db: Session = Depends(get_db),
-    user: str = Depends(authenticate_admin)
+    user: dict = Depends(get_current_user)
 ):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if not student: 
@@ -699,8 +731,9 @@ async def update_issuance_detailed(
     db.commit()
     return {"message": "Issuance details updated successfully!"}
 
+# ADMIN ONLY: Delete Single Student
 @app.delete("/api/admin/student/{reg_no}")
-def delete_student(reg_no: str, db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
+def delete_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(require_admin)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if not student: 
         raise HTTPException(status_code=404, detail="Student not found")
@@ -710,8 +743,9 @@ def delete_student(reg_no: str, db: Session = Depends(get_db), user: str = Depen
     db.commit()
     return {"message": f"Student {reg_no} deleted successfully"}
 
+# ADMIN ONLY: Clear All Database Records
 @app.post("/api/admin/clear-all-students")
-def clear_all_students(db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
+def clear_all_students(db: Session = Depends(get_db), user: dict = Depends(require_admin)):
     db.query(SemesterRecord).delete()
     db.query(Student).delete()
     db.commit()
@@ -727,7 +761,7 @@ async def update_student_status(
     details: str = Form(""),
     proof_file: UploadFile = File(None),
     db: Session = Depends(get_db),
-    user: str = Depends(authenticate_admin)
+    user: dict = Depends(get_current_user)
 ):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if not student: 
@@ -750,7 +784,7 @@ async def update_student_status(
     return {"message": "Record updated successfully!"}
 
 @app.get("/api/admin/grade-stats")
-def get_grade_stats(db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
+def get_grade_stats(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     students = db.query(Student).all()
     
     result = {}
@@ -771,5 +805,5 @@ def get_grade_stats(db: Session = Depends(get_db), user: str = Depends(authentic
     return result
 
 @app.get("/api/admin/all-students")
-def get_all_students(db: Session = Depends(get_db), user: str = Depends(authenticate_admin)):
+def get_all_students(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     return db.query(Student).all()
