@@ -1,3 +1,5 @@
+--- START OF FILE Paste August 01, 2026 - 9:43AM ---
+
 import os
 import re
 import shutil
@@ -24,7 +26,7 @@ try:
 except ImportError:
     pdfplumber = None
 
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -68,7 +70,7 @@ def require_admin(user: dict = Depends(get_current_user)):
     if user["role"] != "admin":
         raise HTTPException(
             status_code=403,
-            detail="Admin permissions required to perform delete operations."
+            detail="Admin permissions required to perform this operation."
         )
     return user
 
@@ -83,8 +85,8 @@ if DATABASE_URL.startswith("postgres://"):
 
 engine = create_engine(
     DATABASE_URL, 
-    pool_pre_ping=True,      # Auto-reconnects dropped SSL handles
-    pool_recycle=300,        # Recycles connections every 5 mins
+    pool_pre_ping=True,
+    pool_recycle=300,
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -97,6 +99,7 @@ class Student(Base):
     roll_no = Column(String)
     name = Column(String)
     admission_year = Column(String)
+    passout_year = Column(String, default="NIL") # Added Passout Year
     course = Column(String, default="Unknown Course")
     subject = Column(String, default="BNGA")
     overall_cgpa = Column(String) 
@@ -142,15 +145,14 @@ bg_upload_status = {
     "filename": ""
 }
 
-# --- UNTOUCHED OPENAI GPT-4o VISION PARSER ---
-
+# --- OPENAI GPT-4o VISION PARSER ---
 def parse_marksheet_with_openai_vision(page):
     pix = page.get_pixmap(dpi=200)
     img_bytes = pix.tobytes("jpeg")
     base64_image = base64.b64encode(img_bytes).decode('utf-8')
 
     prompt = """
-    You are an expert transcript parser. Carefully inspect this Calcutta University Grade Sheet image with 100% precision and return ONLY a valid JSON object matching this exact schema:
+    You are an expert transcript parser. Inspect this Calcutta University Grade Sheet image with 100% precision. Return ONLY a valid JSON object matching this schema:
 
     {
       "registration_no": "424-1211-0240-19",
@@ -158,30 +160,22 @@ def parse_marksheet_with_openai_vision(page):
       "name": "SWAGATA PURKAIT",
       "course": "B.A. (Honours) Examination (Under CBCS)",
       "subject": "BNGA",
+      "passout_year": "2025",
       "overall_cgpa": "6.819",
       "overall_grade": "B+",
       "remarks": "Qualified with Honours",
       "semesters": [
-        {"semester": "I", "year": "2019", "full_marks": "400", "marks": "248", "credit": "20", "sgpa": "5.624"},
-        {"semester": "II", "year": "2020", "full_marks": "400", "marks": "310", "credit": "20", "sgpa": "7.705"},
-        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "330", "credit": "26", "sgpa": "6.899"},
-        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "372", "credit": "26", "sgpa": "7.367"},
-        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "263", "credit": "24", "sgpa": "6.527"},
-        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "270", "credit": "24", "sgpa": "6.686"}
+        {"semester": "I", "year": "2019", "full_marks": "400", "marks": "248", "credit": "20", "sgpa": "5.624"}
       ]
     }
 
     VERIFICATION RULES FOR 100% ACCURACY:
-    1. SUMMARY TABLE LOCATION: Look at the table near the bottom labeled 'Semester', 'Year', 'Full Marks', 'Marks Obtained', 'Semester Credit', 'SGPA', 'Cumulative Credit', 'CGPA', 'Letter Grade', 'Remarks'.
-    2. DO NOT SKIP ANY SEMESTER ROWS: Carefully read every row from Semester I to Semester VI. Do NOT omit Semester IV or any other row if present in the summary table!
-    3. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from the course component tables above (e.g. BNGA-CC13, CC14, DSE-A4, DSE-B4). Read ONLY from the summary table at the bottom.
-    4. ONLY PRESENT SEMESTERS: If a semester is empty/blank in the table (e.g. Sem IV, V, VI blank for a failed student), do NOT include it in the 'semesters' array!
-    5. SUBJECT CODE: Extract subject code prefix from course code (e.g. 'BNGA' from BNGA-CC13 or 'ENGG' from ENGG-CC13). Default to 'BNGA' if not clearly stated.
-    6. OVERALL GRADE: Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI' of the bottom summary table (e.g. B+, A+, A, B, C+, C, D, O). Never read words like 'Good' or status 'P'.
-    7. OVERALL CGPA: Read 'overall_cgpa' ONLY from column 'CGPA' in row 'VI' of the bottom summary table (e.g. 6.819).
-    8. IF SEMESTER NOT CLEARED: If 'Semester not cleared' is printed in Remarks, set 'overall_cgpa': 'N.A.' and 'overall_grade': 'Fail / Semester Not Cleared'.
-    9. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
-    10. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
+    1. PASSOUT YEAR: Extract passout year EXACTLY from the main heading at the very top of the page (e.g. "Examination (Under CBCS), 2025" means passout_year is "2025"). 
+    2. STRICT FAIL LOGIC: Look at the Remarks section below the bottom summary table. If Remarks is exactly "Semester Cleared" (without the word Qualified) OR "Semester not cleared", this means the candidate FAILED or did not qualify overall.
+    3. NO MARKS FOR FAILED CANDIDATES: If the candidate failed (based on rule 2), you MUST set "passout_year": "NIL", "overall_cgpa": "N.A.", "overall_grade": "Fail / Semester Not Cleared", and return an EMPTY ARRAY for "semesters": []. Do not extract marks for failed candidates!
+    4. OVERALL GRADE/CGPA: Only read overall_grade/cgpa from row 'VI' in the bottom table. Never read text like 'Good' or 'P'.
+    5. ONLY PRESENT SEMESTERS: If the student did qualify, read ONLY the bottom summary table for semesters. Do not skip any rows and do not read the top subject modules!
+    6. SUBJECT CODE: Extract subject prefix like BNGA, ENGG, SANA etc.
     """
 
     max_retries = 3
@@ -206,8 +200,7 @@ def parse_marksheet_with_openai_vision(page):
                     }
                 ]
             )
-            result_json = response.choices[0].message.content
-            return json.loads(result_json)
+            return json.loads(response.choices[0].message.content)
         except Exception as e:
             err_msg = str(e).lower()
             if ("429" in err_msg or "rate" in err_msg or "quota" in err_msg) and attempt < max_retries - 1:
@@ -216,19 +209,14 @@ def parse_marksheet_with_openai_vision(page):
                 raise e
 
 # --- LOCAL FALLBACK PARSER ---
-
 def extract_text_rows_from_rect(page, rect_box):
     try:
         words = page.get_text("words", clip=rect_box)
         if not words: return ""
         sorted_words = sorted(words, key=lambda w: (round(w[1] / 5.0), w[0]))
-
-        lines = []
-        current_line = []
-        last_y = None
-
+        lines, current_line, last_y = [], [], None
         for w in sorted_words:
-            x0, y0, x1, y1, word = w[0], w[1], w[2], w[3], w[4]
+            x0, y0, word = w[0], w[1], w[4]
             if last_y is None or abs(y0 - last_y) <= 5:
                 current_line.append(word)
                 last_y = y0
@@ -236,151 +224,98 @@ def extract_text_rows_from_rect(page, rect_box):
                 lines.append(" ".join(current_line))
                 current_line = [word]
                 last_y = y0
-
         if current_line: lines.append(" ".join(current_line))
         return "\n".join(lines)
     except Exception:
         return page.get_text("text", clip=rect_box) or ""
 
 def extract_reg_no_bulletproof(text: str):
-    if not text: return None, "Text empty"
-    t = re.sub(r'[—–_~]', '-', text)
-    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
-
+    if not text: return None
+    t_fixed = re.sub(r'[—–_~]', '-', text).replace('O', '0').replace('o', '0').replace('I', '1').replace('l', '1').replace('S', '5')
     match = re.search(r'(?:Registration|Regn|Reg|Registra)[^\d]{0,15}([0-9\-\s\.\/]{13,22})', t_fixed, re.IGNORECASE)
     if match:
-        digits = re.sub(r'\D', '', match.group(1))
-        if len(digits) >= 13:
-            d = digits[:13]
-            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "Reg Label"
-
-    all_digits_clusters = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
-    if all_digits_clusters:
-        d = all_digits_clusters[0]
-        return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "13-Digit Cluster"
-
-    return None, "No 13-digit pattern found"
+        d = re.sub(r'\D', '', match.group(1))[:13]
+        if len(d) >= 13: return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}"
+    all_d = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
+    return f"{all_d[0][:3]}-{all_d[0][3:7]}-{all_d[0][7:11]}-{all_d[0][11:]}" if all_d else None
 
 def extract_roll_no_bulletproof(text: str):
-    if not text: return "Unknown"
-    t = re.sub(r'[—–_~]', '-', text)
-    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
-
-    all_digits_clusters = re.findall(r'\b\d{12}\b', re.sub(r'\D', ' ', t_fixed))
-    if all_digits_clusters:
-        d = all_digits_clusters[0]
-        return f"{d[:6]}-{d[6:8]}-{d[8:]}"
-
-    return "Unknown"
+    t_fixed = re.sub(r'[—–_~]', '-', text or "").replace('O', '0').replace('I', '1').replace('l', '1').replace('S', '5')
+    all_d = re.findall(r'\b\d{12}\b', re.sub(r'\D', ' ', t_fixed))
+    return f"{all_d[0][:6]}-{all_d[0][6:8]}-{all_d[0][8:]}" if all_d else "Unknown"
 
 def extract_name_bulletproof(text: str):
-    if not text: return "Unknown Student"
-    match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text, re.IGNORECASE)
+    match = re.search(r'Name\s*[\:\.]*\s*([A-Za-z\s\.]+?)(?=Registration|Regn|Roll|\d{3}\-|\n|$)', text or "", re.IGNORECASE)
     if match:
-        raw_name = re.sub(r'[^A-Za-z\s\.]', '', match.group(1)).strip()
-        if len(raw_name) > 2: return raw_name
+        raw = re.sub(r'[^A-Za-z\s\.]', '', match.group(1)).strip()
+        if len(raw) > 2: return raw
     return "Unknown Student"
 
-def extract_course(text: str):
-    if not text: return "B.A. (Honours) Examination"
-    match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', text, re.IGNORECASE)
-    if match:
-        raw_course = match.group(0).strip()
-        cleaned_course = re.sub(r'Semester\s*[\-\–\_]?\s*(VI|V|IV|III|II|I|\d+)', '', raw_course, flags=re.IGNORECASE)
-        return re.sub(r'\s+', ' ', cleaned_course).strip()
-    return "B.A. (Honours) Examination"
+def parse_summary_table_local(table_text: str, full_text: str):
+    sems, cgpa, grade, remarks, passout_year = [], "N.A.", "Fail / Semester Not Cleared", "Qualified", "NIL"
+    if not table_text: return sems, cgpa, grade, remarks, passout_year
 
-def parse_summary_table_local(table_text: str):
-    sems = []
-    cgpa = "N.A."
-    grade = "Fail / Semester Not Cleared"
-    remarks = "Qualified"
-    if not table_text: return sems, cgpa, grade, remarks
+    # Extract year from header
+    yr_match = re.search(r'Examination[\s\S]{0,80}?(\d{4})', full_text, re.IGNORECASE)
+    if yr_match: passout_year = yr_match.group(1)
 
     text_clean = re.sub(r'(\d)\s*[\,\.]\s*(\d)', r'\1.\2', table_text)
-    is_not_cleared = bool(re.search(r'(?:Semester\s*not\s*cleared|not\s*cleared)', text_clean, re.IGNORECASE))
-
+    
     rem_match = re.search(r'Remarks\s*[\:\.]*\s*([^\n\r]+)', text_clean, re.IGNORECASE)
-    if rem_match:
-        remarks = rem_match.group(1).strip()
+    if rem_match: remarks = rem_match.group(1).strip()
 
-    if is_not_cleared:
-        return [], "N.A.", "Fail / Semester Not Cleared", remarks
+    # Fail logic: If remarks is specifically just "Semester Cleared" or "not cleared"
+    is_failed = bool(re.search(r'(not\s*cleared)', remarks, re.IGNORECASE)) or remarks.strip().lower() == "semester cleared"
+    
+    if is_failed:
+        return [], "N.A.", "Fail / Semester Not Cleared", remarks, "NIL"
 
     lines = [l.strip() for l in text_clean.splitlines() if l.strip()]
-    sem_keys = ['I', 'II', 'III', 'IV', 'V', 'VI']
-
     for line in lines:
-        for sem in sem_keys:
+        for sem in ['I', 'II', 'III', 'IV', 'V', 'VI']:
             if re.search(rf'\b{sem}\b', line):
                 years = re.findall(r'\b(20\d\d)\b', line)
                 integers = [i for i in re.findall(r'\b(\d{2,3})\b', line) if i not in years]
                 floats = re.findall(r'\b([1-9]\.\d{2,3})\b', line)
-
                 if years and integers and floats:
-                    s_yr = years[0]
-                    s_fm = integers[0] if len(integers) >= 1 else "400"
-                    s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
-                    s_cred = integers[2] if len(integers) >= 3 else "20"
-                    s_sgpa = floats[0]
-
                     if not any(item["semester"] == sem for item in sems):
                         sems.append({
-                            "semester": sem,
-                            "year": s_yr,
-                            "full_marks": s_fm,
-                            "marks": s_marks,
-                            "credit": s_cred,
-                            "sgpa": s_sgpa
+                            "semester": sem, "year": years[0], 
+                            "full_marks": integers[0] if len(integers) >= 1 else "400",
+                            "marks": integers[1] if len(integers) >= 2 else (integers[0] if integers else "-"),
+                            "credit": integers[2] if len(integers) >= 3 else "20",
+                            "sgpa": floats[0]
                         })
 
-    sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
-    sems = sorted(sems, key=lambda x: sem_order.get(x["semester"], 99))
-
-    all_floats = re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean)
-    valid_gpas = [f for f in all_floats if 1.0 <= float(f) <= 10.0]
+    valid_gpas = [f for f in re.findall(r'\b([1-9]\.\d{2,3})\b', text_clean) if 1.0 <= float(f) <= 10.0]
     if valid_gpas: cgpa = valid_gpas[-1]
-
     grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
     if grade_m: grade = grade_m.group(1)
 
-    return sems, cgpa, grade, remarks
+    return sems, cgpa, grade, remarks, passout_year
 
-# --- BACKGROUND WORKER FOR 1000-PAGE PDFs (SAVES PDF COPIES FOR MENU 7 REPOSITORY) ---
-
+# --- BACKGROUND WORKER ---
 def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
     global bg_upload_status
     db = SessionLocal()
-    
     try:
         doc = fitz.open(temp_pdf_path) if fitz else []
         total_pages = len(doc)
         
-        bg_upload_status["is_processing"] = True
-        bg_upload_status["total_pages"] = total_pages
-        bg_upload_status["processed_pages"] = 0
-        bg_upload_status["extracted_count"] = 0
-        bg_upload_status["status_message"] = f"Processing page 1 of {total_pages}..."
-        
-        ai_quota_exceeded = False
-        extracted_count = 0
+        bg_upload_status.update({"is_processing": True, "total_pages": total_pages, "processed_pages": 0, "extracted_count": 0, "status_message": f"Processing page 1 of {total_pages}..."})
+        ai_quota_exceeded, extracted_count = False, 0
         
         for page_num in range(total_pages):
             try:
                 page = doc[page_num]
                 reg_no = None
                 normalized_semesters = []
-                remarks = "Qualified"
-                subject = "BNGA"
                 
-                # --- STRATEGY 1: OPENAI VISION (GPT-4o) ---
+                # STRATEGY 1: OPENAI VISION
                 if ai_client and not ai_quota_exceeded:
                     try:
-                        if page_num > 0:
-                            time.sleep(0.3)
-
+                        if page_num > 0: time.sleep(0.3)
                         data = parse_marksheet_with_openai_vision(page)
-
                         reg_no = data.get("registration_no")
                         if not reg_no or reg_no == "null":
                             bg_upload_status["processed_pages"] = page_num + 1
@@ -388,163 +323,100 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
 
                         roll_no = data.get("roll_no", "Unknown")
                         name = data.get("name", "Unknown Student")
-                        course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "B.A. (Honours) Examination (Under CBCS)")
+                        course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "Unknown")
                         subject = data.get("subject", "BNGA")
-                        
-                        remarks = data.get("remarks", "Qualified with Honours")
-                        overall_cgpa = data.get("overall_cgpa", "N.A.")
-                        overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
+                        remarks = data.get("remarks", "")
+                        passout_year = str(data.get("passout_year", "NIL")).strip()
+                        overall_cgpa = str(data.get("overall_cgpa", "N.A.")).strip()
+                        overall_grade = str(data.get("overall_grade", "Fail / Semester Not Cleared")).strip()
 
-                        if "not cleared" in str(remarks).lower() or overall_grade.lower() in ["none", "null", "n.a.", ""]:
+                        # Enforce fail rule tightly regardless of hallucination
+                        if overall_grade.lower() in ["none", "null", "n.a.", ""] or "not cleared" in remarks.lower() or remarks.strip().lower() == "semester cleared":
                             overall_cgpa = "N.A."
                             overall_grade = "Fail / Semester Not Cleared"
+                            passout_year = "NIL"
                             normalized_semesters = []
                         else:
-                            raw_semesters = data.get("semesters", [])
-                            for sem in raw_semesters:
+                            for sem in data.get("semesters", []):
                                 if not isinstance(sem, dict): continue
-                                raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
-                                raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
+                                raw_s = str(sem.get("semester") or "").strip().upper()
                                 if not raw_s: continue
-
-                                yr_val = str(sem.get("year") or sem.get("exam_year") or "").strip()
-                                sgpa_val = str(sem.get("sgpa") or sem.get("gpa") or "").strip()
-                                marks_val = str(sem.get("marks") or sem.get("marks_obtained") or "").strip()
-
-                                if (not yr_val or yr_val in ["-", "N.A.", "None", ""]) and (not sgpa_val or sgpa_val in ["-", "N.A.", "None", ""]):
-                                    continue
-
                                 normalized_semesters.append({
                                     "semester": raw_s,
-                                    "year": yr_val if yr_val not in ["-", "N.A."] else "-",
-                                    "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
-                                    "marks": marks_val if marks_val not in ["-", "N.A."] else "-",
-                                    "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
-                                    "sgpa": sgpa_val if sgpa_val not in ["-", "N.A."] else "N.A."
+                                    "year": str(sem.get("year") or "-").strip(),
+                                    "full_marks": str(sem.get("full_marks") or "400").strip(),
+                                    "marks": str(sem.get("marks") or "-").strip(),
+                                    "credit": str(sem.get("credit") or "20").strip(),
+                                    "sgpa": str(sem.get("sgpa") or "N.A.").strip()
                                 })
                     except Exception as ai_err:
                         if "429" in str(ai_err) or "rate" in str(ai_err) or "quota" in str(ai_err):
                             ai_quota_exceeded = True
 
-                # --- STRATEGY 2: LOCAL FALLBACK ---
+                # STRATEGY 2: LOCAL FALLBACK
                 if not ai_client or ai_quota_exceeded or not reg_no:
                     full_text = page.get_text("text") or ""
-                    reg_no, match_method = extract_reg_no_bulletproof(full_text)
+                    reg_no = extract_reg_no_bulletproof(full_text)
                     if not reg_no:
                         bg_upload_status["processed_pages"] = page_num + 1
                         continue
 
                     roll_no = extract_roll_no_bulletproof(full_text)
                     name = extract_name_bulletproof(full_text)
-                    course = selected_course if (selected_course and selected_course != "AUTO") else extract_course(full_text)
+                    c_match = re.search(r'(B\.?A\.?|B\.?Sc\.?|B\.?Com\.?)[^\n\r,]*', full_text, re.IGNORECASE)
+                    course = selected_course if (selected_course and selected_course != "AUTO") else (re.sub(r'Semester.*', '', c_match.group(0).strip(), flags=re.IGNORECASE) if c_match else "Unknown")
+                    s_match = re.search(r'\b([A-Z]{3,4})\-[A-Z0-9]+\b', full_text)
+                    subject = s_match.group(1).upper() if s_match else "BNGA"
 
-                    subj_match = re.search(r'\b([A-Z]{3,4})\-[A-Z0-9]+\b', full_text)
-                    subject = subj_match.group(1).upper() if subj_match else "BNGA"
+                    table_text = extract_text_rows_from_rect(page, fitz.Rect(0, page.rect.height * 0.48, page.rect.width, page.rect.height * 0.88))
+                    normalized_semesters, overall_cgpa, overall_grade, remarks, passout_year = parse_summary_table_local(table_text, full_text)
 
-                    rect = page.rect
-                    table_rect = fitz.Rect(0, rect.height * 0.48, rect.width, rect.height * 0.88)
-                    table_text = extract_text_rows_from_rect(page, table_rect)
-
-                    normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
-
-                # Save 1-page individual PDF copy for Menu 7 Document Repository
                 pdf_repo_path = f"uploads/pdf_repository/{reg_no}.pdf"
                 try:
                     new_pdf = fitz.open()
                     new_pdf.insert_pdf(doc, from_page=page_num, to_page=page_num)
                     new_pdf.save(pdf_repo_path)
                     new_pdf.close()
-                except Exception as pdf_save_err:
-                    pdf_repo_path = ""
+                except Exception: pdf_repo_path = ""
 
-                # Database Upsert
-                existing_student = db.query(Student).filter(Student.registration_no == reg_no).first()
-                if existing_student:
-                    existing_student.name = name
-                    existing_student.roll_no = roll_no
-                    existing_student.course = course
-                    existing_student.subject = subject
-                    existing_student.overall_cgpa = overall_cgpa
-                    existing_student.overall_grade = overall_grade
-                    existing_student.remarks = remarks
-                    if pdf_repo_path: existing_student.pdf_document_path = pdf_repo_path
-                    
+                # Upsert to DB
+                existing = db.query(Student).filter(Student.registration_no == reg_no).first()
+                if existing:
+                    existing.name, existing.roll_no = name, roll_no
+                    existing.course, existing.subject = course, subject
+                    existing.overall_cgpa, existing.overall_grade, existing.remarks, existing.passout_year = overall_cgpa, overall_grade, remarks, passout_year
+                    if pdf_repo_path: existing.pdf_document_path = pdf_repo_path
                     db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-                    for sem in normalized_semesters:
-                        db.add(SemesterRecord(
-                            registration_no=reg_no, 
-                            semester=sem["semester"], 
-                            year=sem["year"], 
-                            full_marks=sem["full_marks"],
-                            marks_obtained=sem["marks"], 
-                            credit=sem["credit"],
-                            sgpa=sem["sgpa"]
-                        ))
                 else:
-                    admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
-                    student = Student(
-                        registration_no=reg_no, 
-                        roll_no=roll_no, 
-                        name=name, 
-                        admission_year=admission_year, 
-                        course=course, 
-                        subject=subject,
-                        overall_cgpa=overall_cgpa, 
-                        overall_grade=overall_grade,
-                        remarks=remarks,
-                        pdf_document_path=pdf_repo_path
-                    )
-                    db.add(student)
-                    for sem in normalized_semesters:
-                        db.add(SemesterRecord(
-                            registration_no=reg_no, 
-                            semester=sem["semester"], 
-                            year=sem["year"], 
-                            full_marks=sem["full_marks"],
-                            marks_obtained=sem["marks"], 
-                            credit=sem["credit"],
-                            sgpa=sem["sgpa"]
-                        ))
+                    adm = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
+                    existing = Student(registration_no=reg_no, roll_no=roll_no, name=name, admission_year=adm, course=course, subject=subject, passout_year=passout_year, overall_cgpa=overall_cgpa, overall_grade=overall_grade, remarks=remarks, pdf_document_path=pdf_repo_path)
+                    db.add(existing)
+
+                for sem in normalized_semesters:
+                    db.add(SemesterRecord(registration_no=reg_no, semester=sem["semester"], year=sem["year"], full_marks=sem["full_marks"], marks_obtained=sem["marks"], credit=sem["credit"], sgpa=sem["sgpa"]))
 
                 extracted_count += 1
-                bg_upload_status["processed_pages"] = page_num + 1
-                bg_upload_status["extracted_count"] = extracted_count
-                bg_upload_status["status_message"] = f"Processing page {page_num+1} of {total_pages} ({extracted_count} records saved so far)..."
+                bg_upload_status.update({"processed_pages": page_num + 1, "extracted_count": extracted_count, "status_message": f"Processing page {page_num+1} of {total_pages} ({extracted_count} records saved)..."})
+                if page_num % 5 == 0: db.commit(); gc.collect()
 
-                if page_num % 5 == 0:
-                    db.commit()
-                    gc.collect()
-
-            except Exception as page_err:
+            except Exception:
                 db.rollback()
                 bg_upload_status["processed_pages"] = page_num + 1
                 continue
 
         if doc: doc.close()
         db.commit()
-        
-        bg_upload_status["is_processing"] = False
-        bg_upload_status["status_message"] = f"🎉 ✅ EXTRACTION DONE! Successfully extracted {extracted_count} student record(s) from {total_pages} pages into the database."
+        bg_upload_status.update({"is_processing": False, "status_message": f"🎉 ✅ EXTRACTION DONE! {extracted_count} records saved."})
     except Exception as e:
         db.rollback()
-        bg_upload_status["is_processing"] = False
-        bg_upload_status["status_message"] = f"❌ Error during background extraction: {str(e)}"
+        bg_upload_status.update({"is_processing": False, "status_message": f"❌ Error: {str(e)}"})
     finally:
         db.close()
-        if os.path.exists(temp_pdf_path):
-            os.remove(temp_pdf_path)
+        if os.path.exists(temp_pdf_path): os.remove(temp_pdf_path)
 
 # --- FASTAPI APP SETUP ---
-app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Marksheet Portal")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+app = FastAPI(title="Shyampur Siddheswari Mahavidyalaya Portal")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 def get_db():
@@ -552,285 +424,126 @@ def get_db():
     try: yield db
     finally: db.close()
 
-# --- SAFE STARTUP DB CREATION & MIGRATION ---
 @app.on_event("startup")
 def startup_db_setup():
-    try:
-        Base.metadata.create_all(bind=engine)
-        with engine.begin() as conn:
-            if "postgresql" in DATABASE_URL:
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS course VARCHAR DEFAULT 'Unknown Course';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS subject VARCHAR DEFAULT 'BNGA';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS remarks VARCHAR DEFAULT 'Qualified';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS marksheet_received BOOLEAN DEFAULT FALSE;"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS certificate_received BOOLEAN DEFAULT FALSE;"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS marksheet_issue_date VARCHAR DEFAULT '';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS certificate_issue_date VARCHAR DEFAULT '';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS issued_by VARCHAR DEFAULT '';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_status VARCHAR DEFAULT 'Unknown';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS post_grad_details VARCHAR DEFAULT '';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS proof_document_path VARCHAR DEFAULT '';"))
-                conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS pdf_document_path VARCHAR DEFAULT '';"))
-                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS full_marks VARCHAR DEFAULT '400';"))
-                conn.execute(text("ALTER TABLE semester_records ADD COLUMN IF NOT EXISTS credit VARCHAR DEFAULT '20';"))
-                conn.execute(text("UPDATE students SET post_grad_status = 'Unknown' WHERE post_grad_status = 'Unemployed';"))
-            elif "sqlite" in DATABASE_URL:
-                columns = [row[1] for row in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
-                if columns:
-                    if "course" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN course VARCHAR DEFAULT 'Unknown Course';"))
-                    if "subject" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN subject VARCHAR DEFAULT 'BNGA';"))
-                    if "remarks" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN remarks VARCHAR DEFAULT 'Qualified';"))
-                    if "marksheet_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN marksheet_received BOOLEAN DEFAULT 0;"))
-                    if "certificate_received" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN certificate_received BOOLEAN DEFAULT 0;"))
-                    if "marksheet_issue_date" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN marksheet_issue_date VARCHAR;"))
-                    if "certificate_issue_date" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN certificate_issue_date VARCHAR;"))
-                    if "issued_by" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN issued_by VARCHAR;"))
-                    if "post_grad_status" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_status VARCHAR DEFAULT 'Unknown';"))
-                    if "post_grad_details" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN post_grad_details VARCHAR;"))
-                    if "proof_document_path" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN proof_document_path VARCHAR;"))
-                    if "pdf_document_path" not in columns: conn.execute(text("ALTER TABLE students ADD COLUMN pdf_document_path VARCHAR;"))
-                
-                sem_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(semester_records);")).fetchall()]
-                if sem_columns:
-                    if "full_marks" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN full_marks VARCHAR DEFAULT '400';"))
-                    if "credit" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN credit VARCHAR DEFAULT '20';"))
-                conn.execute(text("UPDATE students SET post_grad_status = 'Unknown' WHERE post_grad_status = 'Unemployed';"))
-    except Exception as e:
-        print(f"Startup Migration Note: {e}")
+    Base.metadata.create_all(bind=engine)
+    with engine.begin() as conn:
+        try: conn.execute(text("ALTER TABLE students ADD COLUMN IF NOT EXISTS passout_year VARCHAR DEFAULT 'NIL';"))
+        except: pass
+        try: conn.execute(text("ALTER TABLE students ADD COLUMN passout_year VARCHAR DEFAULT 'NIL';"))
+        except: pass
 
-# --- FRONTEND ROUTE ---
 @app.get("/")
-def serve_frontend(user: dict = Depends(get_current_user)):
+def serve_frontend():
     return FileResponse("index.html")
 
-# --- AUTH INFO ENDPOINT ---
 @app.get("/api/auth/me")
 def get_auth_me(user: dict = Depends(get_current_user)):
     return {"username": user["username"], "role": user["role"]}
 
-# --- API ENDPOINTS ---
+@app.post("/api/admin/upload-marksheet")
+async def upload_marksheet(background_tasks: BackgroundTasks, file: UploadFile = File(...), selected_course: str = Form("AUTO"), user: dict = Depends(require_admin)):
+    temp_pdf_path = f"temp_{secrets.token_hex(4)}_{file.filename}"
+    with open(temp_pdf_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
+    doc = fitz.open(temp_pdf_path) if fitz else []
+    total_pages = len(doc)
+    doc.close()
+    background_tasks.add_task(process_large_pdf_in_background, temp_pdf_path, selected_course)
+    return {"message": f"🚀 Started background extraction for {total_pages} page(s)."}
 
 @app.get("/api/admin/upload-status")
 def get_upload_status(user: dict = Depends(get_current_user)):
     return bg_upload_status
 
-@app.post("/api/admin/upload-marksheet")
-async def upload_marksheet(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...), 
-    selected_course: str = Form("AUTO"),
-    user: dict = Depends(get_current_user)
-):
-    temp_pdf_path = f"temp_{secrets.token_hex(4)}_{file.filename}"
-    with open(temp_pdf_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    doc = fitz.open(temp_pdf_path) if fitz else []
-    total_pages = len(doc)
-    doc.close()
-
-    background_tasks.add_task(process_large_pdf_in_background, temp_pdf_path, selected_course)
-
-    return {
-        "message": f"🚀 Successfully started background processing for {total_pages} page(s)! Refresh Tab 6 (Student Directory) or Tab 7 (PDF Repository) to see extracted records in real-time."
-    }
+@app.get("/api/admin/dropdown-options")
+def get_dropdown_options(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    courses = [r[0] for r in db.query(Student.course).distinct().all() if r[0]]
+    subjects = [r[0] for r in db.query(Student.subject).distinct().all() if r[0]]
+    years = [r[0] for r in db.query(Student.passout_year).distinct().all() if r[0] and r[0] != "NIL"]
+    return {"courses": sorted(list(set(courses))), "subjects": sorted(list(set(subjects))), "years": sorted(list(set(years)), reverse=True)}
 
 @app.get("/api/student/{reg_no}")
 def get_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
-    if not student: 
-        raise HTTPException(status_code=404, detail="Student record not found.")
-    
+    if not student: raise HTTPException(status_code=404, detail="Student not found.")
     sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
-    
-    passout_year = "Unknown"
-    for s in sems:
-        if s.semester in ["VI", "6", "VI."] and s.year:
-            passout_year = s.year
-
     return {
         "student": {
-            "name": student.name, 
-            "reg_no": student.registration_no, 
-            "roll_no": student.roll_no,
-            "admission_year": student.admission_year, 
-            "passout_year": passout_year, 
-            "course": student.course,
-            "subject": student.subject or "BNGA",
-            "cgpa": student.overall_cgpa, 
-            "grade": student.overall_grade,
-            "remarks": student.remarks or "Qualified",
-            "marksheet_received": student.marksheet_received, 
-            "certificate_received": student.certificate_received,
-            "marksheet_issue_date": student.marksheet_issue_date or "",
-            "certificate_issue_date": student.certificate_issue_date or "",
-            "issued_by": student.issued_by or "",
-            "status": student.post_grad_status or "Unknown", 
-            "details": student.post_grad_details, 
-            "proof": student.proof_document_path,
-            "pdf_path": student.pdf_document_path
+            "name": student.name, "reg_no": student.registration_no, "roll_no": student.roll_no,
+            "admission_year": student.admission_year, "passout_year": student.passout_year, 
+            "course": student.course, "subject": student.subject or "BNGA",
+            "cgpa": student.overall_cgpa, "grade": student.overall_grade, "remarks": student.remarks,
+            "marksheet_received": student.marksheet_received, "certificate_received": student.certificate_received,
+            "marksheet_issue_date": student.marksheet_issue_date or "", "certificate_issue_date": student.certificate_issue_date or "",
+            "issued_by": student.issued_by or "", "status": student.post_grad_status or "Unknown", 
+            "details": student.post_grad_details, "proof": student.proof_document_path, "pdf_path": student.pdf_document_path
         },
-        "semesters": [
-            {
-                "semester": s.semester, 
-                "year": s.year, 
-                "full_marks": s.full_marks or "400",
-                "marks": s.marks_obtained, 
-                "credit": s.credit or "20",
-                "sgpa": s.sgpa
-            } 
-            for s in sems
-        ]
+        "semesters": [{"semester": s.semester, "year": s.year, "full_marks": s.full_marks, "marks": s.marks_obtained, "credit": s.credit, "sgpa": s.sgpa} for s in sems]
     }
 
-# Full Manual Profile & Marks Update (Menu 2 Edit Provision)
 @app.post("/api/admin/update-profile-full/{reg_no}")
-async def update_student_profile_full(
-    reg_no: str,
-    payload: dict,
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user)
-):
+async def update_student_profile_full(reg_no: str, payload: dict, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
-    if not student: 
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    student.name = payload.get("name", student.name)
-    student.roll_no = payload.get("roll_no", student.roll_no)
-    student.course = payload.get("course", student.course)
-    student.subject = payload.get("subject", student.subject)
-    student.overall_cgpa = payload.get("cgpa", student.overall_cgpa)
-    student.overall_grade = payload.get("grade", student.overall_grade)
+    if not student: raise HTTPException(status_code=404)
+    student.name, student.roll_no = payload.get("name", student.name), payload.get("roll_no", student.roll_no)
+    student.course, student.subject = payload.get("course", student.course), payload.get("subject", student.subject)
+    student.overall_cgpa, student.overall_grade = payload.get("cgpa", student.overall_cgpa), payload.get("grade", student.overall_grade)
     student.remarks = payload.get("remarks", student.remarks)
 
-    # Update Semesters
-    new_semesters = payload.get("semesters", [])
-    if new_semesters:
+    if payload.get("semesters"):
         db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-        for sem in new_semesters:
-            db.add(SemesterRecord(
-                registration_no=reg_no,
-                semester=sem.get("semester"),
-                year=sem.get("year"),
-                full_marks=sem.get("full_marks", "400"),
-                marks_obtained=sem.get("marks"),
-                credit=sem.get("credit", "20"),
-                sgpa=sem.get("sgpa")
-            ))
-
+        for sem in payload.get("semesters", []):
+            db.add(SemesterRecord(registration_no=reg_no, semester=sem.get("semester"), year=sem.get("year"), full_marks=sem.get("full_marks"), marks_obtained=sem.get("marks"), credit=sem.get("credit"), sgpa=sem.get("sgpa")))
     db.commit()
-    return {"message": "Student profile and marks updated successfully!"}
+    return {"message": "Updated!"}
 
-# Detailed Document Issuance Update (Menu 3)
 @app.post("/api/admin/update-issuance-detailed/{reg_no}")
-async def update_issuance_detailed(
-    reg_no: str,
-    marksheet_received: bool = Form(...),
-    certificate_received: bool = Form(...),
-    marksheet_issue_date: str = Form(""),
-    certificate_issue_date: str = Form(""),
-    issued_by: str = Form(""),
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user)
-):
+async def update_issuance_detailed(reg_no: str, marksheet_received: bool=Form(...), certificate_received: bool=Form(...), marksheet_issue_date: str=Form(""), certificate_issue_date: str=Form(""), issued_by: str=Form(""), db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
-    if not student: 
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    student.marksheet_received = marksheet_received
-    student.certificate_received = certificate_received
-    student.marksheet_issue_date = marksheet_issue_date
-    student.certificate_issue_date = certificate_issue_date
+    student.marksheet_received, student.certificate_received = marksheet_received, certificate_received
+    student.marksheet_issue_date, student.certificate_issue_date = marksheet_issue_date, certificate_issue_date
     student.issued_by = issued_by
-
     db.commit()
-    return {"message": "Issuance details updated successfully!"}
-
-# ADMIN ONLY: Delete Single Student
-@app.delete("/api/admin/student/{reg_no}")
-def delete_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(require_admin)):
-    student = db.query(Student).filter(Student.registration_no == reg_no).first()
-    if not student: 
-        raise HTTPException(status_code=404, detail="Student not found")
-    
-    # Remove stored PDF file if exists
-    if student.pdf_document_path and os.path.exists(student.pdf_document_path):
-        try: os.remove(student.pdf_document_path)
-        except: pass
-
-    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-    db.delete(student)
-    db.commit()
-    return {"message": f"Student {reg_no} deleted successfully"}
-
-# ADMIN ONLY: Clear All Database Records
-@app.post("/api/admin/clear-all-students")
-def clear_all_students(db: Session = Depends(get_db), user: dict = Depends(require_admin)):
-    db.query(SemesterRecord).delete()
-    db.query(Student).delete()
-    db.commit()
-    
-    # Clean PDF repository folder
-    try:
-        shutil.rmtree("uploads/pdf_repository")
-        os.makedirs("uploads/pdf_repository", exist_ok=True)
-    except: pass
-
-    return {"message": "All student records and stored PDF marksheets cleared successfully"}
+    return {"message": "Updated!"}
 
 @app.post("/api/admin/update-status/{reg_no}")
-async def update_student_status(
-    reg_no: str,
-    course: str = Form(...),
-    marksheet_received: bool = Form(...),
-    certificate_received: bool = Form(...),
-    status: str = Form(...),
-    details: str = Form(""),
-    proof_file: UploadFile = File(None),
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user)
-):
+async def update_student_status(reg_no: str, course: str=Form(...), marksheet_received: bool=Form(...), certificate_received: bool=Form(...), status: str=Form(...), details: str=Form(""), proof_file: UploadFile=File(None), db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
-    if not student: 
-        raise HTTPException(status_code=404, detail="Student record not found.")
-
-    student.course = course
-    student.marksheet_received = marksheet_received
-    student.certificate_received = certificate_received
-    student.post_grad_status = status
-    student.post_grad_details = details
-
+    student.course, student.post_grad_status, student.post_grad_details = course, status, details
     if proof_file:
-        safe_filename = f"{reg_no}_proof.{proof_file.filename.split('.')[-1]}"
-        file_path = os.path.join("uploads", safe_filename)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(proof_file.file, buffer)
+        file_path = os.path.join("uploads", f"{reg_no}_proof.{proof_file.filename.split('.')[-1]}")
+        with open(file_path, "wb") as buffer: shutil.copyfileobj(proof_file.file, buffer)
         student.proof_document_path = file_path
-
     db.commit()
-    return {"message": "Record updated successfully!"}
-
-@app.get("/api/admin/grade-stats")
-def get_grade_stats(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    stats = db.query(Student.course, Student.overall_grade, func.count(Student.registration_no)) \
-              .group_by(Student.course, Student.overall_grade).all()
-    
-    result = {}
-    for course, grade, count in stats:
-        c = course if course else "Unknown Course"
-        g = grade if grade else "Fail/NA"
-        if c not in result:
-            result[c] = {}
-        result[c][g] = count
-        
-    return result
+    return {"message": "Updated!"}
 
 @app.get("/api/admin/all-students")
 def get_all_students(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     return db.query(Student).all()
 
-# --- ENTRY POINT FOR UVICORN ---
+@app.delete("/api/admin/student/{reg_no}")
+def delete_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(require_admin)):
+    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    if not student: raise HTTPException(status_code=404)
+    if student.pdf_document_path and os.path.exists(student.pdf_document_path):
+        try: os.remove(student.pdf_document_path)
+        except: pass
+    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+    db.delete(student)
+    db.commit()
+    return {"message": "Deleted"}
+
+@app.post("/api/admin/clear-all-students")
+def clear_all_students(db: Session = Depends(get_db), user: dict = Depends(require_admin)):
+    db.query(SemesterRecord).delete()
+    db.query(Student).delete()
+    db.commit()
+    try:
+        shutil.rmtree("uploads/pdf_repository")
+        os.makedirs("uploads/pdf_repository", exist_ok=True)
+    except: pass
+    return {"message": "Cleared"}
+
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=False)
