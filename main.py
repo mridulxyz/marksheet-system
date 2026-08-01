@@ -275,17 +275,16 @@ def extract_course(text: str):
 
 def extract_passout_year(text: str):
     if not text: return "Nil"
-    # Extracts YYYY from phrases like "Examination - 2024" or "Examination, 2024" located at the top
-    match = re.search(r'Examination[^\d]{0,10}(\d{4})', text, re.IGNORECASE)
+    # Matches patterns like "Examination - 2024" or "Examination 2024"
+    match = re.search(r'Examination[^\n]*?\b(20[1-3]\d)\b', text, re.IGNORECASE)
     if match:
         return match.group(1)
     
-    # Fallback: Find a standard year near the top lines
+    # Fallback: Find a standard year near the top lines (top 20 lines)
     lines = text.split('\n')[:20]
     for line in lines:
-        if '20' in line:
-            m = re.search(r'\b(202[0-9]|201[0-9])\b', line)
-            if m: return m.group(1)
+        m = re.search(r'\b(20[1-3]\d)\b', line)
+        if m: return m.group(1)
             
     return "Nil"
 
@@ -391,7 +390,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         name = data.get("name", "Unknown Student")
                         course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "B.A. (Honours) Examination (Under CBCS)")
                         subject = data.get("subject", "BNGA")
-                        passout_year = data.get("passout_year", "Nil")
+                        passout_year = str(data.get("passout_year", "Nil")).strip()
                         
                         remarks = data.get("remarks", "Qualified with Honours")
                         overall_cgpa = data.get("overall_cgpa", "N.A.")
@@ -452,14 +451,29 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
 
                     normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
                 
-                # --- STRICT ENFORCEMENT OF PASSOUT YEAR & FAILED STATUS (applies to both strategies) ---
-                if "fail" in overall_grade.lower() or "not cleared" in str(remarks).lower() or overall_grade in ["", "None", "N.A."]:
+                # --- STRICT ENFORCEMENT OF PASSOUT YEAR & FAILED STATUS ---
+                if "fail" in overall_grade.lower() or "not cleared" in str(remarks).lower() or overall_grade in ["", "None", "N.A.", "Fail / Semester Not Cleared"]:
+                    # Failing Candidate - Strictly Nil
                     passout_year = "Nil"
                     overall_cgpa = "N.A."
                     overall_grade = "Fail / Semester Not Cleared"
                     normalized_semesters = []
-                elif passout_year in ["", "None", "null", "Unknown"]:
-                    passout_year = "Nil"
+                else:
+                    # Passing Candidate - Guarantee a Passout Year from Semesters if Header Extraction Failed!
+                    passout_year = str(passout_year).strip()
+                    if passout_year in ["Nil", "Unknown", "", "None", "null", "N.A."]:
+                        
+                        # Fallback Strategy: Grab year from Semester VI
+                        for sem in normalized_semesters:
+                            if sem["semester"] in ["VI", "6", "VI."] and sem["year"] and sem["year"].isdigit():
+                                passout_year = str(sem["year"])
+                                break
+                        
+                        # Absolute Last Resort: Find max year across all passing semesters
+                        if passout_year in ["Nil", "Unknown", "", "None", "null", "N.A."] and normalized_semesters:
+                            valid_years = [int(s["year"]) for s in normalized_semesters if s["year"].isdigit()]
+                            if valid_years:
+                                passout_year = str(max(valid_years))
 
                 # Save PDF copy
                 pdf_repo_path = f"uploads/pdf_repository/{reg_no}.pdf"
