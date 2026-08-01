@@ -343,7 +343,7 @@
                     <div><b>Course:</b> <span id="s-course"></span> <input type="text" id="edit-course" style="display:none;"></div>
                     <div><b>Subject Code:</b> <span id="s-subject"></span> <input type="text" id="edit-subject" style="display:none;"></div>
                     <div><b>Admission Year:</b> <span id="s-admin-year"></span></div>
-                    <div><b>Passout Year:</b> <span id="s-pass-year"></span></div>
+                    <div><b>Passout Year:</b> <span id="s-pass-year"></span> <input type="text" id="edit-pass-year" style="display:none;" placeholder="YYYY or Nil"></div>
                     <div><b>Final CGPA:</b> <span id="s-cgpa"></span></div>
                     <div><b>Remarks Statement:</b> <span id="s-remarks" style="color:var(--success); font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
                 </div>
@@ -933,14 +933,15 @@
             setElementValue("edit-course", document.getElementById("s-course") ? document.getElementById("s-course").innerText : "");
             setElementValue("edit-subject", document.getElementById("s-subject") ? document.getElementById("s-subject").innerText : "");
             setElementValue("edit-remarks", document.getElementById("s-remarks") ? document.getElementById("s-remarks").innerText : "");
+            setElementValue("edit-pass-year", document.getElementById("s-pass-year") ? document.getElementById("s-pass-year").innerText : "");
 
-            const fields = ["edit-name", "edit-cgpa", "edit-grade", "edit-roll", "edit-course", "edit-subject", "edit-remarks"];
+            const fields = ["edit-name", "edit-cgpa", "edit-grade", "edit-roll", "edit-course", "edit-subject", "edit-remarks", "edit-pass-year"];
             fields.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = displayType;
             });
 
-            const textFields = ["s-name", "s-cgpa-banner", "s-grade-banner", "s-roll", "s-course", "s-subject", "s-remarks"];
+            const textFields = ["s-name", "s-cgpa-banner", "s-grade-banner", "s-roll", "s-course", "s-subject", "s-remarks", "s-pass-year"];
             textFields.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = textType;
@@ -993,6 +994,7 @@
                 roll_no: document.getElementById("edit-roll").value.trim(),
                 course: document.getElementById("edit-course").value.trim(),
                 subject: document.getElementById("edit-subject").value.trim(),
+                passout_year: document.getElementById("edit-pass-year").value.trim(),
                 cgpa: document.getElementById("edit-cgpa").value.trim(),
                 grade: document.getElementById("edit-grade").value.trim(),
                 remarks: document.getElementById("edit-remarks").value.trim(),
