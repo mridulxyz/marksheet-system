@@ -1,5 +1,3 @@
---- START OF FILE Paste August 01, 2026 - 9:43AM ---
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,67 +6,42 @@
     <title>Shyampur Siddheswari Mahavidyalaya Marksheet Portal</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-         :root {
-            --primary: #2563eb;
-            --primary-hover: #1d4ed8;
-            --secondary: #1e3a8a;
-            --secondary-light: #1e293b;
-            --accent: #0d9488;
-            --success: #10b981;
-            --success-light: #d1fae5;
-            --danger: #ef4444;
-            --danger-light: #fee2e2;
-            --warning: #f59e0b;
-            --bg-main: #f8fafc;
-            --card-bg: #ffffff;
-            --border-color: #e2e8f0;
-            --text-dark: #0f172a;
-            --text-muted: #64748b;
-        }
-
+         :root { --primary: #2563eb; --primary-hover: #1d4ed8; --secondary: #1e3a8a; --secondary-light: #1e293b; --success: #10b981; --success-light: #d1fae5; --danger: #ef4444; --danger-light: #fee2e2; --warning: #f59e0b; --bg-main: #f8fafc; --card-bg: #ffffff; --border-color: #e2e8f0; --text-dark: #0f172a; --text-muted: #64748b; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg-main); color: var(--text-dark); min-height: 100vh; display: flex; flex-direction: column; }
-        .navbar { background-color: var(--secondary); color: white; padding: 0 25px; height: 70px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.15); position: sticky; top: 0; z-index: 1000; }
+        .navbar { background-color: var(--secondary); color: white; padding: 0 25px; height: 70px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 1000; }
         .nav-brand { display: flex; align-items: center; gap: 12px; }
         .brand-logo { font-size: 26px; background: linear-gradient(135deg, #3b82f6, #06b6d4); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
         .brand-title { font-size: 16px; font-weight: 700; color: #f8fafc; }
         .brand-subtitle { font-size: 11px; color: #38bdf8; font-weight: 600; text-transform: uppercase; }
         .nav-tabs { display: flex; gap: 6px; height: 100%; align-items: center; }
-        .nav-tab { padding: 10px 14px; color: #94a3b8; background: transparent; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s ease; }
+        .nav-tab { padding: 10px 14px; color: #94a3b8; background: transparent; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
         .nav-tab:hover { color: #f8fafc; background: rgba(255,255,255,0.08); }
         .nav-tab.active { color: #ffffff; background-color: var(--primary); }
         .user-badge { background-color: var(--secondary-light); border: 1px solid #334155; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; color: #38bdf8; display: flex; align-items: center; gap: 10px; }
-        
         .main-container { flex: 1; padding: 30px 40px; max-width: 1400px; width: 100%; margin: 0 auto; }
-        .section { display: none; background: var(--card-bg); padding: 35px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid var(--border-color); }
+        .section { display: none; background: var(--card-bg); padding: 35px; border-radius: 12px; border: 1px solid var(--border-color); }
         .section.active { display: block; }
-        
         h2 { font-size: 22px; color: var(--secondary); margin-bottom: 8px; font-weight: 700; }
         p.section-desc { font-size: 14px; color: var(--text-muted); margin-bottom: 25px; }
         label { font-size: 13px; font-weight: 700; color: #334155; margin-top: 15px; display: block; }
-        input[type="text"], input[type="date"], input[type="file"], select { padding: 12px 14px; margin: 6px 0 12px 0; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; background: #ffffff; }
+        input[type="text"], input[type="date"], input[type="file"], select { padding: 12px 14px; margin: 6px 0 12px 0; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
         button { padding: 12px 20px; margin: 8px 0; width: 100%; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; background-color: var(--primary); color: white; }
-        button:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
-        
         .btn-green { background-color: var(--success) !important; width: auto !important; }
         .btn-orange { background-color: var(--warning) !important; width: auto !important; color: #000 !important; }
         .btn-red { background-color: var(--danger) !important; width: auto !important; }
-        .btn-sm-red { background-color: var(--danger) !important; padding: 6px 12px !important; font-size: 12px !important; width: auto !important; }
-        
+        .btn-sm-red { background-color: var(--danger) !important; padding: 6px 12px !important; font-size: 12px !important; width: auto !important; margin: 0;}
         .dropzone { border: 2px dashed #94a3b8; border-radius: 12px; padding: 40px; text-align: center; background: #f1f5f9; cursor: pointer; margin: 15px 0; }
         .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid var(--border-color); margin-bottom: 25px; }
         .result-card { display: grid; grid-template-columns: 2fr 1fr 1fr; align-items: center; background: linear-gradient(135deg, #ecfdf5, #e0f2fe); border: 2px solid #a7f3d0; border-radius: 12px; padding: 20px 30px; margin-bottom: 25px; text-align: center; }
-        
         table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 15px; font-size: 14px; }
         th, td { border: 1px solid #e2e8f0; padding: 12px 14px; }
         th { background-color: #1e293b; color: white; font-weight: 600; font-size: 13px; text-transform: uppercase; }
         tr:nth-child(even) { background-color: #f8fafc; }
-        
-        .status-tag { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .status-tag { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
         .tag-yes { background-color: var(--success-light); color: #047857; border: 1px solid #a7f3d0; }
         .tag-no { background-color: var(--danger-light); color: #b91c1c; border: 1px solid #fecaca; }
-        
-        .toolbar { display: flex; gap: 15px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px; background: #f8fafc; padding: 18px; border-radius: 10px; border: 1px solid var(--border-color); }
+        .toolbar { display: flex; gap: 15px; align-items: center; justify-content: space-between; margin-bottom: 20px; background: #f8fafc; padding: 18px; border-radius: 10px; border: 1px solid var(--border-color); }
         .toolbar-group { display: flex; gap: 10px; align-items: center; flex: 1; min-width: 220px; }
         .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-top: 25px; }
         .search-flex { display: flex; gap: 10px; align-items: center; }
@@ -84,7 +57,6 @@
                 <div class="brand-subtitle">Marksheet Management Portal</div>
             </div>
         </div>
-
         <nav class="nav-tabs">
             <button id="tab-upload" class="nav-tab active" onclick="switchTab(event, 'upload')">1. 📤 Upload</button>
             <button id="tab-student-search" class="nav-tab" onclick="switchTab(event, 'student-search')">2. 🔍 Profile</button>
@@ -94,10 +66,9 @@
             <button class="nav-tab" onclick="switchTab(event, 'directory'); fetchDirectory();">6. 📁 Directory</button>
             <button class="nav-tab" onclick="switchTab(event, 'repository'); fetchPdfRepository();">7. 📂 PDF Repository</button>
         </nav>
-
         <div class="user-badge" id="userBadge">
             <span id="userText">Checking login...</span>
-            <button onclick="logout()" class="btn-sm-red" style="margin: 0;">Logout</button>
+            <button onclick="logout()" class="btn-sm-red">Logout</button>
         </div>
     </header>
 
@@ -106,10 +77,9 @@
         <!-- 1. UPLOAD (ADMIN ONLY) -->
         <section id="upload" class="section active">
             <h2>Cloud OCR: Extract Marksheets</h2>
-            <p class="section-desc">Upload student marksheets PDF to extract academic records into the database automatically. (Admin Only)</p>
             <label><b>Select Course for this Upload Batch:</b></label>
             <select id="uploadCourseSelect">
-                <option value="AUTO">Auto-Detect Course from Marksheet PDF (Default)</option>
+                <option value="AUTO">Auto-Detect Course from Marksheet PDF</option>
                 <option value="B.A. (Honours)">B.A. (Honours)</option>
                 <option value="B.Sc. (Honours)">B.Sc. (Honours)</option>
                 <option value="B.Com. (Honours)">B.Com. (Honours)</option>
@@ -121,19 +91,17 @@
             </div>
             <input type="file" id="pdfFile" accept="application/pdf" style="display:none;" onchange="updateFileNameDisplay()">
             <button id="uploadBtn" onclick="uploadPDF()">🚀 Start Upload & Extraction</button>
-            <div id="upload-msg"></div>
+            <div id="upload-msg" style="margin-top:15px; font-weight:bold;"></div>
         </section>
 
         <!-- 2. PROFILE -->
         <section id="student-search" class="section">
             <h2>Search Student Academic Profile</h2>
-            
             <div class="search-flex">
                 <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 424-1211-0240-19)" style="margin:0;">
                 <button onclick="fetchStudentProfile()" style="width: 150px;">🔍 Search</button>
                 <button onclick="clearStudentProfile()" class="btn-orange" style="width: 150px;">🗑️ Clear</button>
             </div>
-            
             <div id="profile-area" style="display: none; margin-top: 25px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h3>Student Overview</h3>
@@ -151,7 +119,6 @@
                     <div><b>Subject Code:</b> <span id="s-subject"></span> <input type="text" id="edit-subject" style="display:none;"></div>
                     <div><b>Admission Year:</b> <span id="s-admin-year"></span></div>
                     <div><b>Passout Year:</b> <span id="s-pass-year"></span></div>
-                    <div><b>Final CGPA:</b> <span id="s-cgpa"></span></div>
                     <div><b>Remarks Statement:</b> <span id="s-remarks" style="color:var(--success); font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
                 </div>
                 <div id="sem-table-container">
@@ -162,7 +129,7 @@
                     </table>
                 </div>
                 <div id="failed-candidate-note" style="display: none; margin-top: 15px; padding: 15px; background: #fee2e2; color: #b91c1c; font-weight: bold; text-align: center; border-radius: 8px;">
-                    Semester-wise marks are not required or extracted for Fail / Semester Not Cleared candidates.
+                    Semester-wise marks are not extracted for Fail / Semester Not Cleared candidates.
                 </div>
                 <div id="save-edit-btn-container" style="display: none; margin-top: 20px;">
                     <button onclick="saveFullProfileEdit()" class="btn-green" style="width: 100%;">💾 Save All Profile & Marks Updates</button>
@@ -193,7 +160,7 @@
                     </div>
                 </div>
                 <label style="margin-top:20px;"><b>Issued By:</b></label>
-                <select id="issuedBySelect" onchange="toggleOtherIssuedBy()">
+                <select id="issuedBySelect" onchange="document.getElementById('issuedByOtherInput').style.display = this.value === 'Other' ? 'block' : 'none'">
                     <option value="Roma Pore">Roma Pore</option>
                     <option value="Ruma Bhunia">Ruma Bhunia</option>
                     <option value="Mita Das">Mita Das</option>
@@ -201,7 +168,7 @@
                 </select>
                 <input type="text" id="issuedByOtherInput" style="display:none;" placeholder="Enter Name">
                 <button onclick="saveDocStatusDetailed()" class="btn-green">Save Record</button>
-                <div id="doc-msg"></div>
+                <div id="doc-msg" style="margin-top: 10px; font-weight: bold;"></div>
             </div>
         </section>
 
@@ -216,7 +183,6 @@
                 <h3 id="career-student-title" style="color:var(--primary);"></h3>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-top:15px;">
                     <div><label>Course:</label><input type="text" id="s-course-edit"></div>
-                    <div><label>Subject Code:</label><input type="text" id="s-subject-edit"></div>
                 </div>
                 <label>Status:</label>
                 <select id="postGradStatus">
@@ -231,7 +197,7 @@
                 <input type="file" id="proofFile">
                 <div id="current-proof-link" style="margin: 8px 0; font-size: 13px;"></div>
                 <button onclick="saveCareerStatus()" class="btn-green">Save Career Profile</button>
-                <div id="career-msg"></div>
+                <div id="career-msg" style="margin-top: 10px; font-weight: bold;"></div>
             </div>
         </section>
 
@@ -298,14 +264,14 @@
 
     <script>
         let currentLoadedRegNo = "", allStudentsList = [], currentUserRole = "user", statusInterval = null, isEditMode = false;
+        let gradeChartInstance = null, careerChartInstance = null;
         
         function setElementText(id, text) { const el = document.getElementById(id); if (el) el.innerText = text || "-"; }
         function setElementValue(id, val) { const el = document.getElementById(id); if (el) el.value = val || ""; }
 
         function logout() {
             fetch('/api/auth/me', { method: 'GET', headers: { 'Authorization': 'Basic ' + btoa('logout:logout') } })
-            .then(() => window.location.reload())
-            .catch(() => window.location.reload());
+            .then(() => window.location.reload()).catch(() => window.location.reload());
         }
 
         window.onload = async function() {
@@ -326,20 +292,15 @@
             } catch (e) { }
         };
 
-        // Fetch dynamic dropdowns from Database for Menu 6 and Menu 7
         async function fetchDropdownOptions() {
             try {
                 const res = await fetch('/api/admin/dropdown-options');
                 if (!res.ok) return;
                 const data = await res.json();
-                
-                const buildOptions = (arr, defaultLabel) => `<option value="ALL">${defaultLabel}</option>` + arr.map(item => `<option value="${item}">${item}</option>`).join('');
-                
+                const buildOptions = (arr, defLabel) => `<option value="ALL">${defLabel}</option>` + arr.map(item => `<option value="${item}">${item}</option>`).join('');
                 document.getElementById('filterCourse').innerHTML = buildOptions(data.courses, "All Courses");
                 document.getElementById('repoCourse').innerHTML = buildOptions(data.courses, "All Courses");
-                
                 document.getElementById('repoSubject').innerHTML = buildOptions(data.subjects, "All Subjects");
-                
                 document.getElementById('filterYear').innerHTML = buildOptions(data.years, "All Passout Years");
                 document.getElementById('repoPassoutYear').innerHTML = buildOptions(data.years, "All Passout Years");
             } catch (err) {}
@@ -369,23 +330,21 @@
                 await fetch(`/api/admin/upload-marksheet`, { method: "POST", body: formData });
                 if (statusInterval) clearInterval(statusInterval);
                 statusInterval = setInterval(pollUploadStatus, 2000);
-            } catch (err) {
-                msg.innerHTML = "Error uploading."; btn.disabled = false; btn.innerText = "🚀 Start Upload & Extraction";
-            }
+            } catch (err) { msg.innerHTML = "Error uploading."; btn.disabled = false; btn.innerText = "🚀 Start Upload"; }
         }
 
         async function pollUploadStatus() {
             const res = await fetch('/api/admin/upload-status'), status = await res.json();
             const msg = document.getElementById("upload-msg"), btn = document.getElementById("uploadBtn");
-            msg.innerHTML = `<b>${status.status_message}</b>`;
+            msg.innerHTML = `<span style="color:var(--primary);">${status.status_message}</span>`;
             if (!status.is_processing && status.status_message !== "Idle") {
-                btn.disabled = false; btn.innerText = "🚀 Start Upload & Extraction";
+                btn.disabled = false; btn.innerText = "🚀 Start Upload";
                 clearInterval(statusInterval);
-                fetchDropdownOptions(); // Refresh dropdowns with new parsed data
+                fetchDropdownOptions();
             }
         }
 
-        // --- MENU 2 SEARCH & CLEAR ---
+        // --- MENU 2 SEARCH & EDIT ---
         function clearStudentProfile() {
             document.getElementById("regNoSearch").value = "";
             document.getElementById("profile-area").style.display = "none";
@@ -394,7 +353,7 @@
 
         async function fetchStudentProfile() {
             const regNo = document.getElementById("regNoSearch").value.trim();
-            if (!regNo) return alert("Enter a Registration Number.");
+            if (!regNo) return alert("Enter Registration Number.");
             try {
                 const res = await fetch(`/api/student/${regNo}`);
                 if(!res.ok) throw new Error("Student not found.");
@@ -408,17 +367,21 @@
                 setElementText("s-reg", data.student.reg_no); setElementText("s-roll", data.student.roll_no);
                 setElementText("s-course", data.student.course); setElementText("s-subject", data.student.subject);
                 setElementText("s-admin-year", data.student.admission_year); setElementText("s-pass-year", data.student.passout_year);
-                setElementText("s-cgpa", data.student.cgpa); setElementText("s-remarks", data.student.remarks);
+                setElementText("s-remarks", data.student.remarks);
 
                 const tableCont = document.getElementById("sem-table-container"), note = document.getElementById("failed-candidate-note");
                 
-                // If marks list is empty (enforced by backend fail logic) or grade includes fail
                 if (data.student.grade.includes("Fail") || data.semesters.length === 0) {
                     tableCont.style.display = "none"; note.style.display = "block";
                 } else {
                     tableCont.style.display = "block"; note.style.display = "none";
                     document.getElementById("sem-table-body").innerHTML = data.semesters.map(s => 
-                        `<tr><td><b>${s.semester}</b></td><td>${s.year||"-"}</td><td>${s.full_marks}</td><td>${s.marks}</td><td>${s.credit}</td><td><b>${s.sgpa}</b></td></tr>`
+                        `<tr><td><b>${s.semester}</b><input type="hidden" class="edit-sem-num" value="${s.semester}"></td>
+                        <td><span class="view-sem">${s.year||"-"}</span><input type="text" class="edit-sem edit-sem-year" value="${s.year||''}" style="display:none;"></td>
+                        <td><span class="view-sem">${s.full_marks}</span><input type="text" class="edit-sem edit-sem-fm" value="${s.full_marks||'400'}" style="display:none;"></td>
+                        <td><span class="view-sem">${s.marks}</span><input type="text" class="edit-sem edit-sem-marks" value="${s.marks||''}" style="display:none;"></td>
+                        <td><span class="view-sem">${s.credit}</span><input type="text" class="edit-sem edit-sem-cred" value="${s.credit||'20'}" style="display:none;"></td>
+                        <td><b class="view-sem">${s.sgpa}</b><input type="text" class="edit-sem edit-sem-sgpa" value="${s.sgpa||''}" style="display:none;"></td></tr>`
                     ).join("");
                 }
                 document.getElementById("profile-area").style.display = "block";
@@ -429,11 +392,110 @@
             isEditMode = !isEditMode;
             ["name","cgpa","grade","roll","course","subject","remarks"].forEach(f => {
                 document.getElementById("edit-"+f).style.display = isEditMode ? "inline-block" : "none";
-                document.getElementById(f === "name" || f.includes("banner") ? "s-"+f : (f==="roll"||f==="course"||f==="subject"||f==="remarks" ? "s-"+f : "s-"+f)).style.display = isEditMode ? "none" : "inline-block";
+                document.getElementById(f === "name" || f.includes("banner") ? "s-"+f : "s-"+f).style.display = isEditMode ? "none" : "inline-block";
                 if(isEditMode) setElementValue("edit-"+f, document.getElementById(f === "name" || f.includes("banner") ? "s-"+f : "s-"+f)?.innerText);
             });
+            document.querySelectorAll('.edit-sem').forEach(el => el.style.display = isEditMode ? "inline-block" : "none");
+            document.querySelectorAll('.view-sem').forEach(el => el.style.display = isEditMode ? "none" : "inline-block");
+            
             document.getElementById("save-edit-btn-container").style.display = isEditMode ? "block" : "none";
             setElementText("toggleEditBtn", isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks");
+        }
+
+        async function saveFullProfileEdit() {
+            if (!currentLoadedRegNo) return;
+            const updatedSemesters = [];
+            document.querySelectorAll("#sem-table-body tr").forEach(row => {
+                const sem = row.querySelector(".edit-sem-num")?.value;
+                if(sem) updatedSemesters.push({ semester: sem, year: row.querySelector(".edit-sem-year").value, full_marks: row.querySelector(".edit-sem-fm").value, marks: row.querySelector(".edit-sem-marks").value, credit: row.querySelector(".edit-sem-cred").value, sgpa: row.querySelector(".edit-sem-sgpa").value });
+            });
+
+            const payload = {
+                name: document.getElementById("edit-name").value, roll_no: document.getElementById("edit-roll").value, course: document.getElementById("edit-course").value,
+                subject: document.getElementById("edit-subject").value, cgpa: document.getElementById("edit-cgpa").value, grade: document.getElementById("edit-grade").value,
+                remarks: document.getElementById("edit-remarks").value, semesters: updatedSemesters
+            };
+            try {
+                const res = await fetch(`/api/admin/update-profile-full/${currentLoadedRegNo}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+                if(res.ok) { document.getElementById("edit-msg").innerText = "✅ Saved successfully!"; fetchStudentProfile(); }
+            } catch (err) { document.getElementById("edit-msg").innerText = "❌ Error saving."; }
+        }
+
+        // --- MENU 3 ISSUANCE ---
+        async function loadDocStatus() {
+            const regNo = document.getElementById("docRegNo").value.trim();
+            if (!regNo) return;
+            try {
+                const res = await fetch(`/api/student/${regNo}`);
+                if(!res.ok) throw new Error("Not found");
+                const data = await res.json();
+                currentLoadedRegNo = data.student.reg_no;
+                setElementText("doc-student-title", `${data.student.name} (${data.student.reg_no})`);
+                document.getElementById("marksheetCb").checked = data.student.marksheet_received;
+                document.getElementById("certCb").checked = data.student.certificate_received;
+                setElementValue("marksheetDate", data.student.marksheet_issue_date);
+                setElementValue("certDate", data.student.certificate_issue_date);
+                
+                const by = data.student.issued_by;
+                if(["Roma Pore", "Ruma Bhunia", "Mita Das"].includes(by)) setElementValue("issuedBySelect", by);
+                else if (by) { setElementValue("issuedBySelect", "Other"); document.getElementById("issuedByOtherInput").style.display="block"; setElementValue("issuedByOtherInput", by); }
+                document.getElementById("doc-msg").innerText = "";
+                document.getElementById("doc-form-area").style.display = "block";
+            } catch(e) { alert(e.message); }
+        }
+
+        async function saveDocStatusDetailed() {
+            const sel = document.getElementById("issuedBySelect").value;
+            const by = sel === "Other" ? document.getElementById("issuedByOtherInput").value : sel;
+            const fd = new FormData();
+            fd.append("marksheet_received", document.getElementById("marksheetCb").checked); fd.append("certificate_received", document.getElementById("certCb").checked);
+            fd.append("marksheet_issue_date", document.getElementById("marksheetDate").value); fd.append("certificate_issue_date", document.getElementById("certDate").value); fd.append("issued_by", by);
+            const res = await fetch(`/api/admin/update-issuance-detailed/${currentLoadedRegNo}`, {method:"POST", body:fd});
+            if(res.ok) document.getElementById("doc-msg").innerText = "✅ Saved!";
+        }
+
+        // --- MENU 4 CAREER ---
+        async function loadCareerStatus() {
+            const regNo = document.getElementById("careerRegNo").value.trim();
+            if (!regNo) return;
+            try {
+                const res = await fetch(`/api/student/${regNo}`);
+                const data = await res.json();
+                currentLoadedRegNo = data.student.reg_no;
+                setElementText("career-student-title", `${data.student.name} (${data.student.reg_no})`);
+                setElementValue("s-course-edit", data.student.course);
+                setElementValue("postGradStatus", data.student.status);
+                setElementValue("postGradDetails", data.student.details);
+                document.getElementById("current-proof-link").innerHTML = data.student.proof ? `<a href="/${data.student.proof}" target="_blank">📄 View Proof</a>` : "No proof uploaded.";
+                document.getElementById("career-form-area").style.display = "block";
+                document.getElementById("career-msg").innerText = "";
+            } catch(e) {}
+        }
+
+        async function saveCareerStatus() {
+            const fd = new FormData();
+            fd.append("course", document.getElementById("s-course-edit").value);
+            fd.append("status", document.getElementById("postGradStatus").value);
+            fd.append("details", document.getElementById("postGradDetails").value);
+            const file = document.getElementById("proofFile").files[0];
+            if(file) fd.append("proof_file", file);
+            const res = await fetch(`/api/admin/update-status/${currentLoadedRegNo}`, {method:"POST", body:fd});
+            if(res.ok) { document.getElementById("career-msg").innerText = "✅ Saved!"; loadCareerStatus(); }
+        }
+
+        // --- MENU 5 ANALYTICS ---
+        async function renderCharts() {
+            const res = await fetch("/api/admin/all-students");
+            const students = await res.json();
+            const gradeCounts = {}, careerCounts = {};
+            students.forEach(s => {
+                const g = s.overall_grade || "Fail"; gradeCounts[g] = (gradeCounts[g] || 0) + 1;
+                const c = s.post_grad_status || "Unknown"; careerCounts[c] = (careerCounts[c] || 0) + 1;
+            });
+            if(gradeChartInstance) gradeChartInstance.destroy();
+            gradeChartInstance = new Chart(document.getElementById('gradePieChart'), { type: 'doughnut', data: { labels: Object.keys(gradeCounts), datasets: [{ data: Object.values(gradeCounts), backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#64748b'] }] }});
+            if(careerChartInstance) careerChartInstance.destroy();
+            careerChartInstance = new Chart(document.getElementById('careerPieChart'), { type: 'doughnut', data: { labels: Object.keys(careerCounts), datasets: [{ data: Object.values(careerCounts), backgroundColor: ['#0d9488', '#2563eb', '#ea580c', '#94a3b8'] }] }});
         }
 
         // --- MENU 6 DIRECTORY ---
@@ -452,23 +514,34 @@
 
         function applyDirectoryFilters() {
             const search = document.getElementById("directorySearchInput").value.trim().toLowerCase();
-            const course = document.getElementById("filterCourse").value;
-            const yr = document.getElementById("filterYear").value;
-
+            const course = document.getElementById("filterCourse").value, yr = document.getElementById("filterYear").value;
             const filtered = allStudentsList.filter(s => {
                 const mSearch = search === "" || (s.registration_no&&s.registration_no.toLowerCase().includes(search)) || (s.name&&s.name.toLowerCase().includes(search));
                 const mCourse = course === "ALL" || (s.course && s.course === course);
                 const mYear = yr === "ALL" || s.passout_year === yr;
                 return mSearch && mCourse && mYear;
             });
-
             document.getElementById("directory-container").innerHTML = filtered.length === 0 ? "<p>No records.</p>" : `<table>
-                <thead><tr><th>Reg No</th><th>Name</th><th>Course</th><th>Subject</th><th>Passout Year</th><th>CGPA</th><th>Grade</th><th>Status</th></tr></thead>
+                <thead><tr><th>Reg No</th><th>Name</th><th>Course</th><th>Subject</th><th>Passout Year</th><th>CGPA</th><th>Grade</th><th>Status</th>${currentUserRole==='admin'?'<th>Action</th>':''}</tr></thead>
                 <tbody>` + filtered.map(s => `<tr>
                     <td><b>${s.registration_no}</b></td><td><b>${s.name}</b></td><td>${s.course}</td><td>${s.subject}</td>
                     <td><b>${s.passout_year}</b></td><td>${s.overall_cgpa}</td><td>${s.overall_grade}</td>
                     <td>${s.post_grad_status}</td>
+                    ${currentUserRole==='admin'?`<td><button class="btn-sm-red" onclick="deleteSingleStudent('${s.registration_no}')">Delete</button></td>`:''}
                 </tr>`).join("") + `</tbody></table>`;
+        }
+
+        function downloadExcel() {
+            let csv = "Registration No,Name,Course,Subject,Passout Year,CGPA,Grade\n";
+            allStudentsList.forEach(s => csv += `"${s.registration_no}","${s.name}","${s.course}","${s.subject}","${s.passout_year}","${s.overall_cgpa}","${s.overall_grade}"\n`);
+            const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = "directory.csv"; a.click();
+        }
+
+        async function deleteSingleStudent(reg) {
+            if(confirm("Delete student?")) { await fetch(`/api/admin/student/${reg}`, {method:"DELETE"}); fetchDirectory(); }
+        }
+        async function clearAllData() {
+            if(confirm("DELETE ALL RECORDS?")) { await fetch("/api/admin/clear-all-students", {method:"POST"}); fetchDirectory(); fetchPdfRepository(); }
         }
 
         // --- MENU 7 REPOSITORY ---
@@ -479,17 +552,13 @@
         }
 
         function applyRepoFilters() {
-            const course = document.getElementById("repoCourse").value;
-            const sub = document.getElementById("repoSubject").value;
-            const yr = document.getElementById("repoPassoutYear").value;
-
+            const course = document.getElementById("repoCourse").value, sub = document.getElementById("repoSubject").value, yr = document.getElementById("repoPassoutYear").value;
             const filtered = allStudentsList.filter(s => {
                 const mCourse = course === "ALL" || (s.course && s.course === course);
                 const mSub = sub === "ALL" || (s.subject && s.subject === sub);
                 const mYear = yr === "ALL" || s.passout_year === yr;
                 return mCourse && mSub && mYear;
             });
-
             document.getElementById("repository-container").innerHTML = filtered.length === 0 ? "<p>No documents found.</p>" : `<table>
                 <thead><tr><th>Reg No</th><th>Name</th><th>Course</th><th>Subject</th><th>Passout Year</th><th>PDF Action</th></tr></thead>
                 <tbody>` + filtered.map(s => `<tr>
@@ -497,9 +566,6 @@
                     <td>${s.pdf_document_path ? `<a href="/${s.pdf_document_path}" target="_blank"><button class="btn-green" style="font-size:12px; padding:6px 12px;">📄 View PDF</button></a>` : 'Not Found'}</td>
                 </tr>`).join("") + `</tbody></table>`;
         }
-
-        // Empty dummy function placeholders for existing unused buttons in HTML snippet
-        function loadDocStatus(){} function saveDocStatusDetailed(){} function loadCareerStatus(){} function saveCareerStatus(){} function renderCharts(){}
     </script>
 </body>
 </html>
