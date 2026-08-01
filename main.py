@@ -31,7 +31,7 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
-from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base
+from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base, joinedload
 
 # --- SECURITY (MULTI-USER AUTHENTICATION) ---
 security = HTTPBasic()
@@ -141,6 +141,36 @@ bg_upload_status = {
     "status_message": "Idle",
     "filename": ""
 }
+
+# --- HELPER: AUTO-REPAIR PASSOUT YEAR ---
+def auto_repair_passout_year(student_obj):
+    """Dynamically fixes missing Passout Years from existing DB records to correct 'NIL' bugs."""
+    py = str(student_obj.passout_year).strip()
+    is_fail = ("fail" in str(student_obj.overall_grade).lower() or "not cleared" in str(student_obj.remarks).lower() or student_obj.overall_grade in ["", "None", "N.A."])
+    
+    if is_fail:
+        if py.lower() != "nil":
+            student_obj.passout_year = "Nil"
+            return True
+    else:
+        if py.lower() in ["nil", "none", "unknown", "", "n.a.", "null"]:
+            max_yr = None
+            max_val = 0
+            for sem in student_obj.semesters:
+                if sem.year:
+                    m = re.search(r'(20[1-3]\d)', str(sem.year))
+                    if m:
+                        val = int(m.group(1))
+                        if sem.semester in ["VI", "6", "VI.", "6th"]:
+                            max_yr = str(val)
+                            break
+                        if val > max_val:
+                            max_val = val
+                            max_yr = str(val)
+            if max_yr:
+                student_obj.passout_year = max_yr
+                return True
+    return False
 
 # --- OPENAI GPT-4o VISION PARSER ---
 def parse_marksheet_with_openai_vision(page):
@@ -275,12 +305,12 @@ def extract_course(text: str):
 
 def extract_passout_year(text: str):
     if not text: return "Nil"
-    # Matches patterns like "Examination - 2024" or "Examination 2024"
-    match = re.search(r'Examination[^\n]*?\b(20[1-3]\d)\b', text, re.IGNORECASE)
-    if match:
-        return match.group(1)
+    match = re.search(r'Examination[\s\-\,]*\b(20[1-3]\d)\b', text, re.IGNORECASE)
+    if match: return match.group(1)
     
-    # Fallback: Find a standard year near the top lines (top 20 lines)
+    match2 = re.search(r'\b(20[1-3]\d)\b\s*Examination', text, re.IGNORECASE)
+    if match2: return match2.group(1)
+    
     lines = text.split('\n')[:20]
     for line in lines:
         m = re.search(r'\b(20[1-3]\d)\b', line)
@@ -302,12 +332,10 @@ def parse_summary_table_local(table_text: str):
     if rem_match:
         remarks = rem_match.group(1).strip()
 
-    # Check if letter grade exists to verify if total exam is cleared
     grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
     if grade_m: 
         grade = grade_m.group(1)
     else:
-        # no grade means failed total exam (even if remarks says "Semester Cleared")
         is_not_cleared = True
 
     if is_not_cleared:
@@ -451,29 +479,32 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
 
                     normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
                 
-                # --- STRICT ENFORCEMENT OF PASSOUT YEAR & FAILED STATUS ---
+                # --- STRICT ENFORCEMENT & BULLETPROOF FALLBACK ---
                 if "fail" in overall_grade.lower() or "not cleared" in str(remarks).lower() or overall_grade in ["", "None", "N.A.", "Fail / Semester Not Cleared"]:
-                    # Failing Candidate - Strictly Nil
                     passout_year = "Nil"
                     overall_cgpa = "N.A."
                     overall_grade = "Fail / Semester Not Cleared"
                     normalized_semesters = []
                 else:
-                    # Passing Candidate - Guarantee a Passout Year from Semesters if Header Extraction Failed!
                     passout_year = str(passout_year).strip()
-                    if passout_year in ["Nil", "Unknown", "", "None", "null", "N.A."]:
-                        
-                        # Fallback Strategy: Grab year from Semester VI
+                    if passout_year.lower() in ["nil", "unknown", "", "none", "null", "n.a."]:
+                        # Bulletproof Passout Year Fallback from Semesters
+                        max_yr = None
+                        max_val = 0
                         for sem in normalized_semesters:
-                            if sem["semester"] in ["VI", "6", "VI."] and sem["year"] and sem["year"].isdigit():
-                                passout_year = str(sem["year"])
-                                break
-                        
-                        # Absolute Last Resort: Find max year across all passing semesters
-                        if passout_year in ["Nil", "Unknown", "", "None", "null", "N.A."] and normalized_semesters:
-                            valid_years = [int(s["year"]) for s in normalized_semesters if s["year"].isdigit()]
-                            if valid_years:
-                                passout_year = str(max(valid_years))
+                            m = re.search(r'(20[1-3]\d)', str(sem["year"]))
+                            if m:
+                                val = int(m.group(1))
+                                if sem["semester"] in ["VI", "6", "VI.", "6th"]:
+                                    max_yr = str(val)
+                                    break
+                                if val > max_val:
+                                    max_val = val
+                                    max_yr = str(val)
+                        if max_yr:
+                            passout_year = max_yr
+                        else:
+                            passout_year = "Nil"
 
                 # Save PDF copy
                 pdf_repo_path = f"uploads/pdf_repository/{reg_no}.pdf"
@@ -645,10 +676,13 @@ async def upload_marksheet(
 
 @app.get("/api/student/{reg_no}")
 def get_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    # Auto-repair logic happens directly via relation load
+    student = db.query(Student).options(joinedload(Student.semesters)).filter(Student.registration_no == reg_no).first()
     if not student: 
         raise HTTPException(status_code=404, detail="Student record not found.")
-    sems = db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).all()
+    
+    if auto_repair_passout_year(student):
+        db.commit()
 
     return {
         "student": {
@@ -663,7 +697,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends
         },
         "semesters": [
             {"semester": s.semester, "year": s.year, "full_marks": s.full_marks or "400",
-             "marks": s.marks_obtained, "credit": s.credit or "20", "sgpa": s.sgpa} for s in sems
+             "marks": s.marks_obtained, "credit": s.credit or "20", "sgpa": s.sgpa} for s in student.semesters
         ]
     }
 
@@ -769,7 +803,18 @@ async def update_student_status(
 
 @app.get("/api/admin/all-students")
 def get_all_students(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    return db.query(Student).all()
+    # Safely load all students with their semester records, auto-repair any broken passout_years on the fly.
+    students = db.query(Student).options(joinedload(Student.semesters)).all()
+    needs_commit = False
+    
+    for s in students:
+        if auto_repair_passout_year(s):
+            needs_commit = True
+            
+    if needs_commit:
+        db.commit()
+        
+    return students
 
 if __name__ == "__main__":
     import uvicorn
