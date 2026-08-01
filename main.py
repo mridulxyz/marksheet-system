@@ -171,7 +171,7 @@ def parse_marksheet_with_openai_vision(page):
     2. DO NOT SKIP ANY SEMESTER ROWS: Carefully read every row from Semester I to Semester VI from the summary table.
     3. FAILED / NOT CLEARED CANDIDATES: If the 'Letter Grade' in row 'VI' of the summary table is empty/blank, OR if the Remarks contain 'Semester not cleared', this means the student failed the overall exam. YOU MUST return 'overall_cgpa': 'N.A.', 'overall_grade': 'Fail / Semester Not Cleared', and return an EMPTY array for 'semesters' ([]). Do not return any marks for fail candidates.
     4. OVERALL GRADE: Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI'.
-    5. PASSOUT YEAR: Extract the examination year from the title at the top of the page (e.g., 'Examination - 2024' -> '2024').
+    5. PASSOUT YEAR: Extract the examination year from the main title at the top of the page (e.g., 'Examination - 2024' -> '2024'). Do not calculate it from the semesters. If the student failed or the letter grade is blank, YOU MUST return 'passout_year': 'Nil'.
     6. IF SEMESTER NOT CLEARED BUT BLANK LETTER GRADE: Even if Remarks say 'Semester Cleared', if the Letter Grade is blank, treat as Failed! Return 'Fail / Semester Not Cleared' and an empty 'semesters' array.
     7. DO NOT READ TOP SUBJECT TABLES: Extract marks ONLY from the summary table at the bottom.
     """
@@ -275,9 +275,18 @@ def extract_course(text: str):
 
 def extract_passout_year(text: str):
     if not text: return "Nil"
-    match = re.search(r'Examination[\s\-\,]*(\d{4})', text, re.IGNORECASE)
+    # Extracts YYYY from phrases like "Examination - 2024" or "Examination, 2024" located at the top
+    match = re.search(r'Examination[^\d]{0,10}(\d{4})', text, re.IGNORECASE)
     if match:
         return match.group(1)
+    
+    # Fallback: Find a standard year near the top lines
+    lines = text.split('\n')[:20]
+    for line in lines:
+        if '20' in line:
+            m = re.search(r'\b(202[0-9]|201[0-9])\b', line)
+            if m: return m.group(1)
+            
     return "Nil"
 
 def parse_summary_table_local(table_text: str):
@@ -442,10 +451,15 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     table_text = extract_text_rows_from_rect(page, table_rect)
 
                     normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
-                    
-                    if "Fail" in overall_grade or "not cleared" in remarks.lower():
-                        passout_year = "Nil"
-                        normalized_semesters = []
+                
+                # --- STRICT ENFORCEMENT OF PASSOUT YEAR & FAILED STATUS (applies to both strategies) ---
+                if "fail" in overall_grade.lower() or "not cleared" in str(remarks).lower() or overall_grade in ["", "None", "N.A."]:
+                    passout_year = "Nil"
+                    overall_cgpa = "N.A."
+                    overall_grade = "Fail / Semester Not Cleared"
+                    normalized_semesters = []
+                elif passout_year in ["", "None", "null", "Unknown"]:
+                    passout_year = "Nil"
 
                 # Save PDF copy
                 pdf_repo_path = f"uploads/pdf_repository/{reg_no}.pdf"
@@ -650,19 +664,26 @@ async def update_student_profile_full(
     student.roll_no = payload.get("roll_no", student.roll_no)
     student.course = payload.get("course", student.course)
     student.subject = payload.get("subject", student.subject)
+    student.passout_year = payload.get("passout_year", student.passout_year)
     student.overall_cgpa = payload.get("cgpa", student.overall_cgpa)
     student.overall_grade = payload.get("grade", student.overall_grade)
     student.remarks = payload.get("remarks", student.remarks)
 
+    # STRICT ENFORCEMENT ON MANUAL UPDATES
+    if "fail" in student.overall_grade.lower() or "not cleared" in student.remarks.lower() or student.overall_grade in ["", "None", "N.A."]:
+        student.passout_year = "Nil"
+        student.overall_cgpa = "N.A."
+        student.overall_grade = "Fail / Semester Not Cleared"
+        payload["semesters"] = []
+
     new_semesters = payload.get("semesters", [])
-    if new_semesters:
-        db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-        for sem in new_semesters:
-            db.add(SemesterRecord(
-                registration_no=reg_no, semester=sem.get("semester"), year=sem.get("year"),
-                full_marks=sem.get("full_marks", "400"), marks_obtained=sem.get("marks"),
-                credit=sem.get("credit", "20"), sgpa=sem.get("sgpa")
-            ))
+    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+    for sem in new_semesters:
+        db.add(SemesterRecord(
+            registration_no=reg_no, semester=sem.get("semester"), year=sem.get("year"),
+            full_marks=sem.get("full_marks", "400"), marks_obtained=sem.get("marks"),
+            credit=sem.get("credit", "20"), sgpa=sem.get("sgpa")
+        ))
     db.commit()
     return {"message": "Student profile and marks updated successfully!"}
 
