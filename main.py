@@ -8,24 +8,22 @@ import time
 import gc
 import io
 from PIL import Image
-import os
 from dotenv import load_dotenv
 load_dotenv()  # This forces python to read your new .env file!
 
-import re
-import shutil
-import secrets
 # Safe Imports
 try:
     import fitz  # PyMuPDF
 except ImportError:
     fitz = None
+    print("WARNING: 'PyMuPDF' (fitz) is not installed! PDF processing will fail.")
 
 try:
     from google import genai
     from google.genai import types
 except ImportError:
     genai = None
+    print("WARNING: 'google-genai' package is not installed! Gemini OCR will be completely skipped.")
 
 try:
     import pdfplumber
@@ -80,7 +78,7 @@ def require_admin(user: dict = Depends(get_current_user)):
         )
     return user
 
-# --- GEMINI CLIENT SETUP (Using Latest Google GenAI SDK) ---
+# --- GEMINI CLIENT SETUP ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ai_client = genai.Client(api_key=GEMINI_API_KEY) if (genai and GEMINI_API_KEY) else None
 
@@ -153,7 +151,6 @@ bg_upload_status = {
 
 # --- HELPER: AUTO-REPAIR PASSOUT YEAR ---
 def auto_repair_passout_year(student_obj):
-    """Dynamically fixes missing Passout Years from existing DB records to correct 'NIL' bugs."""
     py = str(student_obj.passout_year).strip()
     is_fail = ("fail" in str(student_obj.overall_grade).lower() or "not cleared" in str(student_obj.remarks).lower() or student_obj.overall_grade in ["", "None", "N.A."])
     
@@ -181,7 +178,7 @@ def auto_repair_passout_year(student_obj):
                 return True
     return False
 
-# --- GEMINI 3.6 FLASH VISION PARSER ---
+# --- GEMINI VISION PARSER ---
 def parse_marksheet_with_gemini_vision(page):
     pix = page.get_pixmap(dpi=200)
     img_bytes = pix.tobytes("jpeg")
@@ -204,51 +201,59 @@ def parse_marksheet_with_gemini_vision(page):
       "remarks": "Qualified with Honours",
       "semesters": [
         {"semester": "I", "year": "2019", "full_marks": "400", "marks": "248", "credit": "20", "sgpa": "5.624"},
-        {"semester": "II", "year": "2020", "full_marks": "400", "marks": "310", "credit": "20", "sgpa": "7.705"},
-        {"semester": "III", "year": "2022", "full_marks": "500", "marks": "330", "credit": "26", "sgpa": "6.899"},
-        {"semester": "IV", "year": "2023", "full_marks": "500", "marks": "372", "credit": "26", "sgpa": "7.367"},
-        {"semester": "V", "year": "2023", "full_marks": "400", "marks": "263", "credit": "24", "sgpa": "6.527"},
-        {"semester": "VI", "year": "2024", "full_marks": "400", "marks": "270", "credit": "24", "sgpa": "6.686"}
+        {"semester": "II", "year": "2020", "full_marks": "400", "marks": "310", "credit": "20", "sgpa": "7.705"}
       ]
     }
 
     VERIFICATION RULES FOR 100% ACCURACY:
-    1. SUMMARY TABLE LOCATION: Look at the table near the bottom labeled 'Semester', 'Year', 'Full Marks', 'Marks Obtained', 'Semester Credit', 'SGPA', 'Cumulative Credit', 'CGPA', 'Letter Grade', 'Remarks'.
-    2. DO NOT SKIP ANY SEMESTER ROWS: Carefully read every row from Semester I to Semester VI. Do NOT omit Semester IV or any other row if present in the summary table!
-    3. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from the course component tables above (e.g. BNGA-CC13, CC14, DSE-A4, DSE-B4). Read ONLY from the summary table at the bottom.
-    4. ONLY PRESENT SEMESTERS: If a semester is empty/blank in the table (e.g. Sem IV, V, VI blank for a failed student), do NOT include it in the 'semesters' array!
-    5. SUBJECT CODE: Extract subject code prefix from course code (e.g. 'BNGA' from BNGA-CC13 or 'ENGG' from ENGG-CC13). Default to 'BNGA' if not clearly stated. DO NOT return full words like 'chemistry' or 'physics'.
-    6. OVERALL GRADE: Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI' of the bottom summary table (e.g. B+, A+, A, B, C+, C, D, O). Never read words like 'Good' or status 'P'.
-    7. OVERALL CGPA: Read 'overall_cgpa' ONLY from column 'CGPA' in row 'VI' of the bottom summary table (e.g. 6.819).
-    8. IF SEMESTER NOT CLEARED: If 'Semester not cleared' is printed in Remarks, set 'overall_cgpa': 'N.A.' and 'overall_grade': 'Fail / Semester Not Cleared'.
-    9. REMARKS: Read the exact Remarks line right below the summary table (e.g. 'Qualified with Honours' or 'Semester not cleared').
-    10. COURSE TITLE: Omit 'Semester - VI' from course title. Use 'B.A. (Honours) Examination (Under CBCS)'.
-    11. PASSOUT YEAR: Extract the examination year from the main title at the top of the marksheet (e.g. 'Examination - 2024' -> '2024'). If the student failed or overall grade is blank, set passout_year to "Nil".
-    12. FAILED/NOT CLEARED OVERRIDE: If the student failed or overall grade is blank, set overall_grade to "Fail / Semester Not Cleared", overall_cgpa to "N.A.", passout_year to "Nil", and return an empty array [] for "semesters".
+    1. SUMMARY TABLE LOCATION: Look at the bottom table labeled 'Semester', 'Year', 'Full Marks', 'Marks Obtained', etc.
+    2. ONLY PRESENT SEMESTERS: If a semester is empty/blank, do NOT include it.
+    3. OVERALL GRADE: Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI' (e.g. B+, A+, A, B, C+, C, D, O).
+    4. OVERALL CGPA: Read 'overall_cgpa' ONLY from column 'CGPA' in row 'VI'.
+    5. FAILED/NOT CLEARED OVERRIDE: If 'Semester not cleared' is in Remarks, set 'overall_cgpa': 'N.A.' and 'overall_grade': 'Fail / Semester Not Cleared'.
     """
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            # Using Gemini 3.6 Flash (The newest, most robust multimodal model)
-            response = ai_client.models.generate_content(
-                model='gemini-3.6-flash',
-                contents=[prompt, image],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                ),
-            )
-            result_json = response.text
-            return json.loads(result_json)
-        except Exception as e:
-            err_msg = str(e).lower()
-            if ("429" in err_msg or "rate" in err_msg or "quota" in err_msg) and attempt < max_retries - 1:
-                time.sleep((attempt + 1) * 3)
-            else:
-                raise e
+    # Added robust fallback array for Models if one throws 404 or fails
+    models_to_try = ['gemini-3.6-flash', 'gemini-1.5-flash', 'gemini-2.0-flash']
+    
+    last_exception = None
+    for model_name in models_to_try:
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                response = ai_client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt, image],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                    ),
+                )
+                
+                # Cleanup potential Markdown block hallucination
+                result_json = response.text.strip()
+                if result_json.startswith("```"):
+                    result_json = result_json.strip("`").strip()
+                    if result_json.lower().startswith("json"):
+                        result_json = result_json[4:].strip()
+                        
+                return json.loads(result_json)
+                
+            except Exception as e:
+                last_exception = e
+                err_msg = str(e).lower()
+                
+                # If model is not found, break out of retries and try next model
+                if "404" in err_msg or "not found" in err_msg:
+                    break 
+                
+                if ("429" in err_msg or "rate" in err_msg or "quota" in err_msg):
+                    time.sleep((attempt + 1) * 3)
+                else:
+                    break 
+
+    raise last_exception
 
 # --- LOCAL FALLBACK PARSER ---
-
 def extract_text_rows_from_rect(page, rect_box):
     try:
         words = page.get_text("words", clip=rect_box)
@@ -297,12 +302,10 @@ def extract_roll_no_bulletproof(text: str):
     if not text: return "Unknown"
     t = re.sub(r'[—–_~]', '-', text)
     t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
-
     all_digits_clusters = re.findall(r'\b\d{12}\b', re.sub(r'\D', ' ', t_fixed))
     if all_digits_clusters:
         d = all_digits_clusters[0]
         return f"{d[:6]}-{d[6:8]}-{d[8:]}"
-
     return "Unknown"
 
 def extract_name_bulletproof(text: str):
@@ -325,8 +328,7 @@ def extract_course(text: str):
 def extract_passout_year(text: str):
     if not text: return "Nil"
     match = re.search(r'Examination[^\n]*?\b(20[1-3]\d)\b', text, re.IGNORECASE)
-    if match:
-        return match.group(1)
+    if match: return match.group(1)
     
     lines = text.split('\n')[:20]
     for line in lines:
@@ -369,20 +371,13 @@ def parse_summary_table_local(table_text: str):
                 floats = re.findall(r'\b([1-9]\.\d{2,3})\b', line)
 
                 if years and integers and floats:
-                    s_yr = years[0]
-                    s_fm = integers[0] if len(integers) >= 1 else "400"
-                    s_marks = integers[1] if len(integers) >= 2 else (integers[0] if integers else "-")
-                    s_cred = integers[2] if len(integers) >= 3 else "20"
-                    s_sgpa = floats[0]
-
                     if not any(item["semester"] == sem for item in sems):
                         sems.append({
-                            "semester": sem,
-                            "year": s_yr,
-                            "full_marks": s_fm,
-                            "marks": s_marks,
-                            "credit": s_cred,
-                            "sgpa": s_sgpa
+                            "semester": sem, "year": years[0],
+                            "full_marks": integers[0] if len(integers) >= 1 else "400",
+                            "marks": integers[1] if len(integers) >= 2 else (integers[0] if integers else "-"),
+                            "credit": integers[2] if len(integers) >= 3 else "20",
+                            "sgpa": floats[0]
                         })
 
     sem_order = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
@@ -395,7 +390,6 @@ def parse_summary_table_local(table_text: str):
     return sems, cgpa, grade, remarks
 
 # --- BACKGROUND WORKER FOR PDFs ---
-
 def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
     global bg_upload_status
     db = SessionLocal()
@@ -425,59 +419,65 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                 # --- STRATEGY 1: GEMINI VISION ---
                 if ai_client and not ai_quota_exceeded:
                     try:
-                        if page_num > 0: time.sleep(0.3)
+                        if page_num > 0: time.sleep(1.5)  # slightly longer sleep to avoid free tier rate limits
                         data = parse_marksheet_with_gemini_vision(page)
                         reg_no = data.get("registration_no")
-                        if not reg_no or reg_no == "null":
-                            bg_upload_status["processed_pages"] = page_num + 1
-                            continue
-
-                        roll_no = data.get("roll_no", "Unknown")
-                        name = data.get("name", "Unknown Student")
-                        course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "B.A. (Honours) Examination (Under CBCS)")
-                        subject = data.get("subject", "BNGA")
-                        passout_year = str(data.get("passout_year", "Nil")).strip()
                         
-                        remarks = data.get("remarks", "Qualified with Honours")
-                        overall_cgpa = data.get("overall_cgpa", "N.A.")
-                        overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
-
-                        if "not cleared" in str(remarks).lower() or overall_grade.lower() in ["none", "null", "n.a.", "", "fail / semester not cleared"]:
-                            overall_cgpa = "N.A."
-                            overall_grade = "Fail / Semester Not Cleared"
-                            normalized_semesters = []
-                            passout_year = "Nil"
+                        # CRITICAL BUG FIX: If reg_no is null, DO NOT 'continue' (which skips the page). Set to None to fallback to Strategy 2!
+                        if not reg_no or reg_no == "null":
+                            reg_no = None
                         else:
-                            raw_semesters = data.get("semesters", [])
-                            for sem in raw_semesters:
-                                if not isinstance(sem, dict): continue
-                                raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
-                                raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
-                                if not raw_s: continue
+                            roll_no = data.get("roll_no", "Unknown")
+                            name = data.get("name", "Unknown Student")
+                            course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "B.A. (Honours) Examination (Under CBCS)")
+                            subject = data.get("subject", "BNGA")
+                            passout_year = str(data.get("passout_year", "Nil")).strip()
+                            
+                            remarks = data.get("remarks", "Qualified with Honours")
+                            overall_cgpa = data.get("overall_cgpa", "N.A.")
+                            overall_grade = data.get("overall_grade", "Fail / Semester Not Cleared")
 
-                                yr_val = str(sem.get("year") or sem.get("exam_year") or "").strip()
-                                sgpa_val = str(sem.get("sgpa") or sem.get("gpa") or "").strip()
-                                marks_val = str(sem.get("marks") or sem.get("marks_obtained") or "").strip()
+                            if "not cleared" in str(remarks).lower() or overall_grade.lower() in ["none", "null", "n.a.", "", "fail / semester not cleared"]:
+                                overall_cgpa = "N.A."
+                                overall_grade = "Fail / Semester Not Cleared"
+                                normalized_semesters = []
+                                passout_year = "Nil"
+                            else:
+                                raw_semesters = data.get("semesters", [])
+                                for sem in raw_semesters:
+                                    if not isinstance(sem, dict): continue
+                                    raw_s = str(sem.get("semester") or sem.get("sem") or "").strip().upper()
+                                    raw_s = re.sub(r'SEMESTER\s*', '', raw_s).strip()
+                                    if not raw_s: continue
 
-                                if (not yr_val or yr_val in ["-", "N.A.", "None", ""]) and (not sgpa_val or sgpa_val in ["-", "N.A.", "None", ""]):
-                                    continue
+                                    yr_val = str(sem.get("year") or sem.get("exam_year") or "").strip()
+                                    sgpa_val = str(sem.get("sgpa") or sem.get("gpa") or "").strip()
+                                    marks_val = str(sem.get("marks") or sem.get("marks_obtained") or "").strip()
 
-                                normalized_semesters.append({
-                                    "semester": raw_s,
-                                    "year": yr_val if yr_val not in ["-", "N.A."] else "-",
-                                    "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
-                                    "marks": marks_val if marks_val not in ["-", "N.A."] else "-",
-                                    "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
-                                    "sgpa": sgpa_val if sgpa_val not in ["-", "N.A."] else "N.A."
-                                })
+                                    if (not yr_val or yr_val in ["-", "N.A.", "None", ""]) and (not sgpa_val or sgpa_val in ["-", "N.A.", "None", ""]):
+                                        continue
+
+                                    normalized_semesters.append({
+                                        "semester": raw_s,
+                                        "year": yr_val if yr_val not in ["-", "N.A."] else "-",
+                                        "full_marks": str(sem.get("full_marks") or sem.get("total_marks") or "400").strip(),
+                                        "marks": marks_val if marks_val not in ["-", "N.A."] else "-",
+                                        "credit": str(sem.get("credit") or sem.get("semester_credit") or "20").strip(),
+                                        "sgpa": sgpa_val if sgpa_val not in ["-", "N.A."] else "N.A."
+                                    })
                     except Exception as ai_err:
-                        if "429" in str(ai_err) or "rate" in str(ai_err) or "quota" in str(ai_err):
+                        # Log error to render console so you know exactly why it failed
+                        print(f"[Page {page_num+1}] Gemini API Issue: {str(ai_err)}")
+                        if "429" in str(ai_err).lower() or "rate" in str(ai_err).lower() or "quota" in str(ai_err).lower():
                             ai_quota_exceeded = True
 
                 # --- STRATEGY 2: LOCAL FALLBACK ---
                 if not ai_client or ai_quota_exceeded or not reg_no:
                     full_text = page.get_text("text") or ""
-                    reg_no, match_method = extract_reg_no_bulletproof(full_text)
+                    reg_no_found, match_method = extract_reg_no_bulletproof(full_text)
+                    if reg_no_found:
+                        reg_no = reg_no_found
+                        
                     if not reg_no:
                         bg_upload_status["processed_pages"] = page_num + 1
                         continue
@@ -488,7 +488,6 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     
                     subj_match = re.search(r'\b([A-Z]{3,4})\-[A-Z0-9]+\b', full_text)
                     subject = subj_match.group(1).upper() if subj_match else "BNGA"
-                    
                     passout_year = extract_passout_year(full_text)
 
                     rect = page.rect
@@ -576,6 +575,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     gc.collect()
 
             except Exception as page_err:
+                print(f"Error executing Page {page_num+1}: {page_err}") # Added log
                 db.rollback()
                 bg_upload_status["processed_pages"] = page_num + 1
                 continue
@@ -656,19 +656,16 @@ def startup_db_setup():
                     if "full_marks" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN full_marks VARCHAR DEFAULT '400';"))
                     if "credit" not in sem_columns: conn.execute(text("ALTER TABLE semester_records ADD COLUMN credit VARCHAR DEFAULT '20';"))
     except Exception as e:
-        print(f"Startup Migration Note: {e}")
+        pass
 
 # --- FRONTEND ROUTE ---
 @app.get("/")
 def serve_frontend(user: dict = Depends(get_current_user)):
     return FileResponse("index.html")
 
-# --- AUTH INFO ENDPOINT ---
 @app.get("/api/auth/me")
 def get_auth_me(user: dict = Depends(get_current_user)):
     return {"username": user["username"], "role": user["role"]}
-
-# --- API ENDPOINTS ---
 
 @app.get("/api/admin/upload-status")
 def get_upload_status(user: dict = Depends(get_current_user)):
