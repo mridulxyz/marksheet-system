@@ -47,7 +47,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base, joinedload
 
-# --- SECURITY (MULTI-USER AUTHENTICATION) ---
+# --- SECURITY ---
 security = HTTPBasic()
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cuadmin123")
@@ -190,19 +190,22 @@ def parse_marksheet_with_gemini_vision(page):
         }
       ],
       "semesters": [
-        {"semester": "I", "year": "2019", "full_marks": "400", "marks": "248", "credit": "20", "sgpa": "5.624"}
+        {"semester": "I", "year": "2019", "full_marks": "400", "marks_obtained": "248", "credit": "20", "sgpa": "5.624"}
       ]
     }
+
+    RULES:
+    1. Extract ALL subjects into "papers". Include components (Theoretical/Practical).
+    2. Extract ALL available semesters from the summary table into "semesters".
+    3. Must strictly return JSON only.
     """
     
-    # Robust Fallback Loop to prevent 404 NOT FOUND errors
+    # Bulletproof fallback for 404 Model Errors
     models_to_try = [
         'gemini-1.5-flash',
         'gemini-2.0-flash',
         'gemini-1.5-pro',
-        'gemini-1.5-flash-latest',
-        'gemini-3.5-flash', # Retaining your original requested model names just in case
-        'gemini-3.6-flash'
+        'gemini-3.5-flash'
     ]
     
     last_exception = None
@@ -230,24 +233,18 @@ def parse_marksheet_with_gemini_vision(page):
         except Exception as e:
             last_exception = e
             err_str = str(e).lower()
-            
-            if "404" in err_str or "not found" in err_str:
-                continue # Model doesn't exist, immediately try the next one in the list
-            if "429" in err_str or "quota" in err_str:
-                time.sleep(3)
-                continue # Rate limited, wait 3 seconds and try the next one
-            
-            continue # For any other arbitrary error, try next model to be safe
+            if "404" in err_str or "not found" in err_str: continue 
+            if "429" in err_str or "quota" in err_str: time.sleep(3); continue 
+            continue
 
     raise last_exception
 
-def process_large_pdf_in_background():
+def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
     global bg_upload_status
     db = SessionLocal()
-    temp_pdf = bg_upload_status["temp_pdf_path"]
     
     try:
-        doc = fitz.open(temp_pdf) if fitz else []
+        doc = fitz.open(temp_pdf_path) if fitz else []
         bg_upload_status["is_processing"] = True
         bg_upload_status["is_paused"] = False
         bg_upload_status["pause_requested"] = False
@@ -258,10 +255,14 @@ def process_large_pdf_in_background():
                 bg_upload_status["is_processing"] = False
                 bg_upload_status["is_paused"] = True
                 bg_upload_status["status_message"] = f"⏸️ Paused at page {page_num}."
-                save_upload_state(); db.close(); doc.close(); return
+                save_upload_state()
+                db.close()
+                doc.close()
+                return
 
             try:
-                data = parse_marksheet_with_gemini_vision(doc[page_num])
+                page = doc[page_num]
+                data = parse_marksheet_with_gemini_vision(page)
                 reg_no = data.get("registration_no")
                 
                 if not reg_no or reg_no == "null":
@@ -296,12 +297,19 @@ def process_large_pdf_in_background():
                         "status": str(p.get("status", "")).strip()
                     })
 
-                # DB Insert
-                pdf_path = f"uploads/pdf_repository/{reg_no}.pdf"
+                # Safe PDF Split Saving (Fixing the document closed issue)
+                pdf_repo_path = f"uploads/pdf_repository/{reg_no}.pdf"
                 try:
-                    fitz.open().insert_pdf(doc, from_page=page_num, to_page=page_num).save(pdf_path)
-                except: pdf_path = ""
+                    if fitz:
+                        new_pdf = fitz.open()
+                        new_pdf.insert_pdf(doc, from_page=page_num, to_page=page_num)
+                        new_pdf.save(pdf_repo_path)
+                        new_pdf.close()
+                except Exception as e:
+                    print("Error saving single PDF:", e)
+                    pdf_repo_path = ""
 
+                # DB Insert / Update
                 student = db.query(Student).filter(Student.registration_no == reg_no).first()
                 if not student:
                     student = Student(registration_no=reg_no, admission_year="20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown")
@@ -309,13 +317,13 @@ def process_large_pdf_in_background():
                 
                 student.name = data.get("name", "Unknown")
                 student.roll_no = data.get("roll_no", "Unknown")
-                student.course = bg_upload_status["selected_course"] if bg_upload_status["selected_course"] != "AUTO" else data.get("course", "Unknown")
+                student.course = selected_course if selected_course != "AUTO" else data.get("course", "Unknown")
                 student.subject = data.get("subject", "Unknown")
                 student.passout_year = str(data.get("passout_year", "Nil")).strip()
                 student.overall_cgpa = data.get("overall_cgpa", "N.A.")
                 student.overall_grade = data.get("overall_grade", "Fail")
                 student.remarks = data.get("remarks", "Qualified")
-                if pdf_path: student.pdf_document_path = pdf_path
+                if pdf_repo_path: student.pdf_document_path = pdf_repo_path
                 
                 db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
                 for s in norm_sems: db.add(SemesterRecord(registration_no=reg_no, **s))
@@ -341,7 +349,7 @@ def process_large_pdf_in_background():
         bg_upload_status["is_processing"] = False
         bg_upload_status["status_message"] = f"✅ DONE! Processed {len(doc)} pages. Saved: {bg_upload_status['extracted_count']}."
         save_upload_state()
-        if os.path.exists(temp_pdf): os.remove(temp_pdf)
+        if os.path.exists(temp_pdf_path): os.remove(temp_pdf_path)
 
     except Exception as e:
         db.rollback()
@@ -388,9 +396,13 @@ async def upload_marksheet(background_tasks: BackgroundTasks, file: UploadFile =
     total_pages = len(doc)
     doc.close()
     
-    bg_upload_status.update({"is_processing": True, "is_paused": False, "pause_requested": False, "total_pages": total_pages, "processed_pages": 0, "extracted_count": 0, "filename": file.filename, "temp_pdf_path": temp_pdf_path, "selected_course": selected_course, "errors": []})
+    bg_upload_status.update({
+        "is_processing": True, "is_paused": False, "pause_requested": False,
+        "total_pages": total_pages, "processed_pages": 0, "extracted_count": 0,
+        "filename": file.filename, "temp_pdf_path": temp_pdf_path, "selected_course": selected_course, "errors": []
+    })
     save_upload_state()
-    background_tasks.add_task(process_large_pdf_in_background)
+    background_tasks.add_task(process_large_pdf_in_background, temp_pdf_path, selected_course)
     return {"message": "Started"}
 
 @app.post("/api/admin/pause-upload")
@@ -402,7 +414,7 @@ def pause_upload(user: dict = Depends(require_admin)):
 def resume_upload(background_tasks: BackgroundTasks, user: dict = Depends(require_admin)):
     if bg_upload_status["is_paused"]:
         bg_upload_status["is_processing"] = True; bg_upload_status["is_paused"] = False; bg_upload_status["pause_requested"] = False; save_upload_state()
-        background_tasks.add_task(process_large_pdf_in_background)
+        background_tasks.add_task(process_large_pdf_in_background, bg_upload_status["temp_pdf_path"], bg_upload_status["selected_course"])
     return {"message": "Resuming..."}
 
 @app.get("/api/student/{reg_no}")
@@ -420,7 +432,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db)):
             "issued_by": student.issued_by, "status": student.post_grad_status, 
             "details": student.post_grad_details, "proof": student.proof_document_path, "pdf_path": student.pdf_document_path
         },
-        "semesters": [{"semester": s.semester, "year": s.year, "full_marks": s.full_marks, "marks": s.marks_obtained, "credit": s.credit, "sgpa": s.sgpa} for s in student.semesters],
+        "semesters": [{"semester": s.semester, "year": s.year, "full_marks": s.full_marks, "marks_obtained": s.marks_obtained, "credit": s.credit, "sgpa": s.sgpa} for s in student.semesters],
         "papers": [{"course_code": p.course_code, "course_name": p.course_name, "component": p.component, "full_marks": p.full_marks, "marks_obtained": p.marks_obtained, "credit": p.credit, "grade": p.grade, "status": p.status} for p in student.papers]
     }
 
@@ -433,7 +445,7 @@ async def update_student_profile_full(reg_no: str, payload: dict, db: Session = 
     
     db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
     for sem in payload.get("semesters", []): 
-        db.add(SemesterRecord(registration_no=reg_no, semester=sem.get("semester"), year=sem.get("year"), full_marks=sem.get("full_marks"), marks_obtained=sem.get("marks"), credit=sem.get("credit"), sgpa=sem.get("sgpa")))
+        db.add(SemesterRecord(registration_no=reg_no, semester=sem.get("semester"), year=sem.get("year"), full_marks=sem.get("full_marks"), marks_obtained=sem.get("marks_obtained"), credit=sem.get("credit"), sgpa=sem.get("sgpa")))
     db.query(PaperRecord).filter(PaperRecord.registration_no == reg_no).delete()
     for p in payload.get("papers", []): 
         db.add(PaperRecord(registration_no=reg_no, **p))
@@ -470,12 +482,15 @@ async def update_student_status(
     return {"message": "Record updated!"}
 
 @app.get("/api/admin/all-students")
-def get_all_students(db: Session = Depends(get_db)): return db.query(Student).options(joinedload(Student.semesters)).all()
+def get_all_students(db: Session = Depends(get_db)): 
+    return db.query(Student).options(joinedload(Student.semesters)).all()
 
 @app.delete("/api/admin/student/{reg_no}")
 def delete_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(require_admin)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if student.pdf_document_path and os.path.exists(student.pdf_document_path): os.remove(student.pdf_document_path)
+    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
+    db.query(PaperRecord).filter(PaperRecord.registration_no == reg_no).delete()
     db.delete(student)
     db.commit()
     return {"message": "Deleted"}
