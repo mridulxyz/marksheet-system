@@ -84,7 +84,6 @@
 </head>
 <body>
 
-    <!-- 100% PRESERVED TOP NAVIGATION BAR -->
     <header class="navbar">
         <div class="nav-brand"><div class="brand-logo">🎓</div><div><div class="brand-title">Shyampur Siddheswari Mahavidyalaya</div><div class="brand-subtitle">Marksheet Portal</div></div></div>
         
@@ -130,8 +129,8 @@
 
             <div style="display: flex; gap: 10px;">
                 <button id="uploadBtn" class="btn-green" onclick="uploadPDF()">🚀 Start Extraction</button>
-                <button id="pauseBtn" class="btn-orange" onclick="pauseUpload()" style="display:none;">⏸️ Pause</button>
-                <button id="resumeBtn" class="btn-green" onclick="resumeUpload()" style="display:none;">▶️ Resume</button>
+                <button id="pauseBtn" class="btn-orange" onclick="pauseUpload()" style="display:none;">⏸️ Pause Processing</button>
+                <button id="resumeBtn" class="btn-green" onclick="resumeUpload()" style="display:none;">▶️ Resume Processing</button>
             </div>
             
             <div id="upload-msg"></div>
@@ -168,7 +167,6 @@
                     <div><b>Remarks Statement:</b> <span id="s-remarks" style="color:var(--success); font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
                 </div>
 
-                <!-- FULL DIGITIZED SUBJECT MARK TABLE -->
                 <div style="margin-top: 30px;">
                     <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Detailed Subject/Paper Marks Breakdown</h3>
                     <table>
@@ -182,7 +180,6 @@
                     <button type="button" id="addPaperRowBtn" onclick="addPaperRow()" class="btn-orange" style="display:none; margin-top: 10px;">+ Add Subject Row</button>
                 </div>
 
-                <!-- SEMESTER SUMMARY TABLE -->
                 <div style="margin-top: 40px;">
                     <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Semester-wise Performance Summary (I - VIII)</h3>
                     <table>
@@ -289,7 +286,7 @@
             </div>
         </section>
 
-        <!-- 6. STUDENT MASTER DIRECTORY -->
+        <!-- 6. STUDENT MASTER DIRECTORY (All original columns restored!) -->
         <section id="directory" class="section">
             <h2>Student Master Directory</h2>
             
@@ -332,7 +329,7 @@
             <div id="directory-container"><i>Loading directory...</i></div>
         </section>
 
-        <!-- 7. PDF REPOSITORY -->
+        <!-- 7. PDF REPOSITORY (Course and Semester filters added!) -->
         <section id="repository" class="section">
             <h2>📂 PDF Marksheet Document Repository</h2>
             
@@ -340,6 +337,29 @@
                 <input type="text" id="repoSearchInput" placeholder="🔍 Search by Registration No...">
                 <button onclick="applyRepoFilters()" class="btn-green">Search</button>
                 <button onclick="clearRepoSearch()" class="btn-gray">Clear</button>
+            </div>
+
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <label><b>Filter by Course:</b></label>
+                    <select id="repoCourse" onchange="applyRepoFilters()" style="margin:0;">
+                        <option value="ALL">All Courses</option>
+                        <option value="B.A. (Honours)">B.A. (Honours)</option>
+                        <option value="B.A. (MDC)">B.A. (MDC)</option>
+                        <option value="B.Sc. (Honours)">B.Sc. (Honours)</option>
+                        <option value="B.Sc. (MDC)">B.Sc. (MDC)</option>
+                        <option value="B.Com. (Honours)">B.Com. (Honours)</option>
+                        <option value="B.Com. (MDC)">B.Com. (MDC)</option>
+                    </select>
+                </div>
+                <div class="toolbar-group">
+                    <label><b>Filter by Sem:</b></label>
+                    <select id="repoSemester" onchange="applyRepoFilters()" style="margin:0;">
+                        <option value="ALL">All Semesters</option>
+                        <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
+                        <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
+                    </select>
+                </div>
             </div>
             
             <div id="repository-container"><i>Loading Repository...</i></div>
@@ -390,7 +410,7 @@
         function setElementText(id, textVal) { const el = document.getElementById(id); if (el) el.innerText = (textVal !== undefined && textVal !== null) ? textVal : "-"; }
         function setElementValue(id, val) { const el = document.getElementById(id); if (el) el.value = (val !== undefined && val !== null) ? val : ""; }
 
-        // --- UPLOAD ---
+        // --- 1. UPLOAD ---
         async function uploadPDF() {
             const file = document.getElementById("pdfFile").files[0];
             if (!file) return alert("Select a PDF first.");
@@ -420,7 +440,7 @@
                 }
 
                 if (status.is_processing) {
-                    document.getElementById("pauseBtn").innerText = "⏸️ Pause";
+                    document.getElementById("pauseBtn").innerText = "⏸️ Pause Processing";
                     msg.innerHTML = `<div class="progress-card"><b style="color:#d35400;">⏳ Processing PDF:</b> Page ${status.processed_pages} of ${status.total_pages} (${status.extracted_count} saved)...<br><small>${status.status_message}</small>${errorHtml}</div>`;
                 } else if (status.is_paused) {
                     msg.innerHTML = `<div class="progress-card" style="border-color:#f59e0b; color:#b45309;"><b>${status.status_message}</b>${errorHtml}</div>`;
@@ -433,7 +453,7 @@
             } catch (e) {}
         }
 
-        // --- PROFILE ---
+        // --- 2. PROFILE ---
         async function fetchStudentProfile() {
             const regNo = document.getElementById("regNoSearch").value.trim();
             if (!regNo) return alert("Enter Registration Number.");
@@ -457,7 +477,9 @@
         function renderPaperTable(papers, editable) {
             const tbody = document.getElementById("paper-table-body");
             tbody.innerHTML = "";
-            if(papers.length === 0 && !editable) return tbody.innerHTML = "<tr><td colspan='8'>No records.</td></tr>";
+            if(papers.length === 0 && !editable) {
+                tbody.innerHTML = "<tr><td colspan='8'>No records found.</td></tr>"; return;
+            }
             papers.forEach(p => {
                 if (editable) {
                     tbody.innerHTML += `<tr>
@@ -512,7 +534,7 @@
             });
             document.getElementById("save-edit-btn-container").style.display = isEditMode ? "block" : "none";
             document.getElementById("addPaperRowBtn").style.display = isEditMode ? "inline-block" : "none";
-            document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel" : "✏️ Edit";
+            document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks";
             fetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { renderPaperTable(data.papers||[], isEditMode); renderSemesterTable(data.semesters||[], isEditMode); });
         }
 
@@ -520,7 +542,7 @@
             const updatedSemesters = [], updatedPapers = [];
             document.querySelectorAll("#sem-table-body tr").forEach(row => {
                 const y = row.querySelector(".edit-sem-year").value.trim(), mo = row.querySelector(".edit-sem-mo").value.trim(), s = row.querySelector(".edit-sem-sgpa").value.trim();
-                if (y || mo || s) updatedSemesters.push({ semester: row.querySelector(".edit-sem-num").value, year: y, full_marks: row.querySelector(".edit-sem-fm").value.trim()||"400", marks: mo, credit: row.querySelector(".edit-sem-cred").value.trim()||"20", sgpa: s });
+                if (y || mo || s) updatedSemesters.push({ semester: row.querySelector(".edit-sem-num").value, year: y, full_marks: row.querySelector(".edit-sem-fm").value.trim()||"400", marks_obtained: mo, credit: row.querySelector(".edit-sem-cred").value.trim()||"20", sgpa: s });
             });
             document.querySelectorAll("#paper-table-body tr").forEach(row => {
                 if(row.querySelector(".edit-p-code")) {
@@ -598,8 +620,13 @@
 
         // --- 6. DIRECTORY ---
         async function fetchDirectory() { document.getElementById("directory-container").innerHTML = "<i>Loading...</i>"; allStudentsList = await fetch("/api/admin/all-students").then(r => r.json()); applyDirectoryFilters(); }
+        
         function applyDirectoryFilters() {
-            const v = document.getElementById("directorySearchInput").value.trim().toLowerCase(), c = document.getElementById("filterCourse").value, s = document.getElementById("filterSemester").value, y = document.getElementById("filterSemYear").value.trim();
+            const v = document.getElementById("directorySearchInput").value.trim().toLowerCase();
+            const c = document.getElementById("filterCourse").value;
+            const s = document.getElementById("filterSemester").value;
+            const y = document.getElementById("filterSemYear").value.trim();
+
             const filtered = allStudentsList.filter(st => {
                 const mSearch = (v==="") || (st.registration_no&&st.registration_no.toLowerCase().includes(v)) || (st.name&&st.name.toLowerCase().includes(v));
                 const mCourse = (c==="ALL") || (st.course&&st.course.includes(c));
@@ -607,32 +634,66 @@
                 return mSearch && mCourse && mSem;
             });
             const container = document.getElementById("directory-container");
-            if (filtered.length === 0) return container.innerHTML = "<p>No matching records.</p>";
-            let html = `<table><thead><tr><th>Reg No</th><th>Name</th><th>Course</th><th>Passout Year</th><th>CGPA</th>${currentUserRole==='admin'?'<th>Action</th>':''}</tr></thead><tbody>`;
-            filtered.forEach(st => { html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.course}</td><td>${st.passout_year}</td><td><b>${st.overall_cgpa}</b></td>${currentUserRole==='admin'?`<td><button onclick="deleteSingleStudent('${st.registration_no}')" class="btn-sm-red">Del</button></td>`:''}</tr>`; });
+            if (filtered.length === 0) return container.innerHTML = "<p style='text-align:center;'>No matching records.</p>";
+            
+            // FULL RESTORE OF ALL COLUMNS
+            let html = `<table><thead><tr>
+                <th>Reg No</th><th>Name</th><th>Course</th><th>Subject</th><th>Passout Year</th>
+                <th>CGPA</th><th>Grade</th><th>Marksheet Status</th><th>Certificate Status</th>
+                <th>Career Status & Proof</th>${currentUserRole==='admin'?'<th>Action</th>':''}
+            </tr></thead><tbody>`;
+
+            filtered.forEach(st => { 
+                let msStatus = st.marksheet_received ? `<span class="status-tag tag-yes">ISSUED</span><br><small>Date: ${st.marksheet_issue_date||'-'}<br>By: ${st.issued_by||'-'}</small>` : `<span class="status-tag tag-no">PENDING</span>`;
+                let certStatus = st.certificate_received ? `<span class="status-tag tag-yes">ISSUED</span><br><small>Date: ${st.certificate_issue_date||'-'}<br>By: ${st.issued_by||'-'}</small>` : `<span class="status-tag tag-no">PENDING</span>`;
+                let proofLink = st.proof_document_path ? `<br><a href="/${st.proof_document_path}" target="_blank">📄 View Proof</a>` : '';
+                let detailsText = st.post_grad_details ? `<br><small>${st.post_grad_details}</small>` : '';
+
+                html += `<tr>
+                    <td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.course}</td><td><b>${st.subject||'BNGA'}</b></td><td>${st.passout_year}</td>
+                    <td><b>${st.overall_cgpa}</b></td><td><b>${st.overall_grade}</b></td>
+                    <td>${msStatus}</td><td>${certStatus}</td>
+                    <td><b>${st.post_grad_status||'Unknown'}</b>${detailsText}${proofLink}</td>
+                    ${currentUserRole==='admin'?`<td><button onclick="deleteSingleStudent('${st.registration_no}')" class="btn-sm-red">Delete</button></td>`:''}
+                </tr>`; 
+            });
             container.innerHTML = html + `</tbody></table>`;
         }
+
         function clearDirectorySearch() { document.getElementById("directorySearchInput").value = ""; document.getElementById("filterCourse").value = "ALL"; document.getElementById("filterSemester").value = "ALL"; document.getElementById("filterSemYear").value = ""; applyDirectoryFilters(); }
         async function deleteSingleStudent(regNo) { if(confirm(`Delete ${regNo}?`)) { await fetch(`/api/admin/student/${regNo}`, { method: "DELETE" }); fetchDirectory(); } }
         async function clearAllData() { if(confirm("DELETE ALL records?")) { await fetch(`/api/admin/clear-all-students`, { method: "POST" }); fetchDirectory(); } }
+        
         function downloadExcel() {
             if (allStudentsList.length === 0) return alert("No records.");
-            let csv = "Registration No,Name,Roll No,Course,Subject,Admission Year,Passout Year,CGPA,Grade,Remarks\n";
-            allStudentsList.forEach(s => { csv += `"${s.registration_no}","${s.name}","${s.roll_no}","${s.course}","${s.subject}","${s.admission_year}","${s.passout_year}","${s.overall_cgpa}","${s.overall_grade}","${s.remarks}"\n`; });
+            let csv = "Registration No,Name,Roll No,Course,Subject,Admission Year,Passout Year,CGPA,Grade,Remarks,Marksheet Status,Marksheet Date,Certificate Status,Certificate Date,Issued By,Career Status,Career Details\n";
+            allStudentsList.forEach(s => { csv += `"${s.registration_no}","${s.name}","${s.roll_no}","${s.course}","${s.subject}","${s.admission_year}","${s.passout_year}","${s.overall_cgpa}","${s.overall_grade}","${s.remarks}","${s.marksheet_received?'ISSUED':'PENDING'}","${s.marksheet_issue_date||''}","${s.certificate_received?'ISSUED':'PENDING'}","${s.certificate_issue_date||''}","${s.issued_by||''}","${s.post_grad_status||'Unknown'}","${s.post_grad_details||''}"\n`; });
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `Directory.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a);
         }
 
-        // --- 7. REPOSITORY ---
+        // --- 7. REPOSITORY (With Course/Semester Search) ---
         function applyRepoFilters() {
             const v = document.getElementById("repoSearchInput").value.trim().toLowerCase();
-            const list = allStudentsList.filter(st => (v==="") || (st.registration_no&&st.registration_no.toLowerCase().includes(v)));
+            const c = document.getElementById("repoCourse").value;
+            const s = document.getElementById("repoSemester").value;
+
+            const list = allStudentsList.filter(st => {
+                const mSearch = (v==="") || (st.registration_no&&st.registration_no.toLowerCase().includes(v));
+                const mCourse = (c==="ALL") || (st.course&&st.course.includes(c));
+                let mSem = true; if (s!=="ALL") { mSem=false; st.semesters.forEach(r => { if(r.semester===s) mSem=true; }); }
+                return mSearch && mCourse && mSem;
+            });
+            
             const container = document.getElementById("repository-container");
-            if (list.length === 0) return container.innerHTML = "<p>No matches.</p>";
-            let html = `<table><thead><tr><th>Reg No</th><th>Name</th><th>Action</th></tr></thead><tbody>`;
-            list.forEach(st => { html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.pdf_document_path ? `<a href="/${st.pdf_document_path}" target="_blank"><button class="btn-green">📄 View PDF</button></a>` : "Not Stored"}</td></tr>`; });
+            if (list.length === 0) return container.innerHTML = "<p style='text-align:center;'>No matches.</p>";
+            let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Course</th><th>Subject</th><th>Passout Year</th><th>Action</th></tr></thead><tbody>`;
+            list.forEach(st => { 
+                let pdf = st.pdf_document_path ? `<a href="/${st.pdf_document_path}" target="_blank"><button class="btn-green">📄 View PDF</button></a>` : "Not Stored";
+                html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.course}</td><td><b>${st.subject}</b></td><td>${st.passout_year}</td><td>${pdf}</td></tr>`; 
+            });
             container.innerHTML = html + `</tbody></table>`;
         }
-        function clearRepoSearch() { document.getElementById("repoSearchInput").value = ""; applyRepoFilters(); }
+        function clearRepoSearch() { document.getElementById("repoSearchInput").value = ""; document.getElementById("repoCourse").value = "ALL"; document.getElementById("repoSemester").value = "ALL"; applyRepoFilters(); }
         async function fetchPdfRepository() { await fetchDirectory(); applyRepoFilters(); }
 
         // --- 5. ANALYTICS ---
