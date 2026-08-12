@@ -1,5 +1,8 @@
 google-genai
-pillow
+PyMuPDF
+Pillow
+fastapi
+uvicorn
+python-multipart
 python-dotenv
-pymupdf
-gunicorn
+sqlalchemy
