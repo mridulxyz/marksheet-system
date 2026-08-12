@@ -3,7 +3,6 @@ import re
 import shutil
 import secrets
 import json
-import base64
 import time
 import gc
 import io
@@ -11,7 +10,7 @@ from PIL import Image
 from dotenv import load_dotenv
 load_dotenv()
 
-# Safe Imports
+# Safe Imports for PDF processing
 try:
     import pymupdf as fitz  # PyMuPDF
 except ImportError:
@@ -19,18 +18,26 @@ except ImportError:
         import fitz # Fallback for older versions
     except ImportError:
         fitz = None
-    
-try:
-    from google import genai
-    from google.genai import types
-except ImportError:
-    genai = None
-    print("WARNING: 'google-genai' package is not installed! Gemini OCR will be completely skipped.")
 
-try:
-    import pdfplumber
-except ImportError:
-    pdfplumber = None
+# --- ROBUST GEMINI SDK HANDLER ---
+# Supports both old (google-generativeai) and new (google-genai) SDKs
+ai_client_type = None
+ai_client = None
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if GEMINI_API_KEY:
+    try:
+        import google.generativeai as legacy_genai
+        legacy_genai.configure(api_key=GEMINI_API_KEY)
+        ai_client_type = "legacy"
+    except ImportError:
+        try:
+            from google import genai
+            from google.genai import types
+            ai_client = genai.Client(api_key=GEMINI_API_KEY)
+            ai_client_type = "new"
+        except ImportError:
+            print("WARNING: Neither 'google-generativeai' nor 'google-genai' is installed. AI OCR will be skipped.")
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,7 +45,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, func, text
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base, joinedload
 
 # --- SECURITY (MULTI-USER AUTHENTICATION) ---
@@ -66,9 +73,6 @@ def require_admin(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin permissions required.")
     return user
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-ai_client = genai.Client(api_key=GEMINI_API_KEY) if (genai and GEMINI_API_KEY) else None
-
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./calcutta_university.db")
 if DATABASE_URL.startswith("postgres://"): 
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -89,7 +93,7 @@ class Student(Base):
     admission_year = Column(String)
     passout_year = Column(String, default="Nil")
     course = Column(String, default="Unknown Course")
-    subject = Column(String, default="BNGA")
+    subject = Column(String, default="Unknown")
     overall_cgpa = Column(String) 
     overall_grade = Column(String)
     remarks = Column(String, default="Qualified")
@@ -120,7 +124,6 @@ class SemesterRecord(Base):
     sgpa = Column(String)
     student = relationship("Student", back_populates="semesters")
 
-# NEW: Detailed Paper Record Model for full digitization
 class PaperRecord(Base):
     __tablename__ = "paper_records"
     id = Column(Integer, primary_key=True, index=True)
@@ -153,7 +156,6 @@ def load_upload_state():
             with open(STATE_FILE, "r") as f:
                 saved_state = json.load(f)
                 bg_upload_status.update(saved_state)
-                # If server crashed while processing, set to paused so user can resume
                 if bg_upload_status["is_processing"]:
                     bg_upload_status["is_processing"] = False
                     bg_upload_status["is_paused"] = True
@@ -167,42 +169,14 @@ def save_upload_state():
         with open(STATE_FILE, "w") as f: json.dump(bg_upload_status, f)
     except Exception: pass
 
-def auto_repair_passout_year(student_obj):
-    py = str(student_obj.passout_year).strip()
-    is_fail = ("fail" in str(student_obj.overall_grade).lower() or "not cleared" in str(student_obj.remarks).lower() or student_obj.overall_grade in ["", "None", "N.A."])
-    
-    if is_fail:
-        if py.lower() != "nil":
-            student_obj.passout_year = "Nil"
-            return True
-    else:
-        if py.lower() in ["nil", "none", "unknown", "", "n.a.", "null"]:
-            max_yr = None
-            max_val = 0
-            for sem in student_obj.semesters:
-                if sem.year:
-                    m = re.search(r'(20[1-3]\d)', str(sem.year))
-                    if m:
-                        val = int(m.group(1))
-                        # Support Sem 8
-                        if sem.semester in ["VI", "6", "VIII", "8"]:
-                            max_yr = str(val)
-                            break
-                        if val > max_val:
-                            max_val = val
-                            max_yr = str(val)
-            if max_yr:
-                student_obj.passout_year = max_yr
-                return True
-    return False
-
 def parse_marksheet_with_gemini_vision(page):
-    pix = page.get_pixmap(dpi=200)
+    # Increased DPI to 300 for clearer image extraction on dense tables
+    pix = page.get_pixmap(dpi=300)
     img_bytes = pix.tobytes("jpeg")
     image = Image.open(io.BytesIO(img_bytes))
 
     prompt = """
-    You are an expert transcript parser. Carefully inspect this Calcutta University Grade Sheet image (which could span up to 8 semesters).
+    You are an expert transcript parser. Inspect this Calcutta University Grade Sheet (spanning up to 8 semesters).
     Return ONLY a valid JSON object matching this exact schema covering BOTH the detailed paper breakdown AND the semester summary:
 
     {
@@ -214,7 +188,7 @@ def parse_marksheet_with_gemini_vision(page):
       "passout_year": "2024",
       "overall_cgpa": "6.819",
       "overall_grade": "B+",
-      "remarks": "Qualified with Honours",
+      "remarks": "Qualified",
       "papers": [
         {
           "course_code": "CAGM-MDC-3",
@@ -234,52 +208,44 @@ def parse_marksheet_with_gemini_vision(page):
     }
 
     RULES:
-    1. Extract ALL rows from the detailed subjects table into "papers". Include components like Theoretical/Tutorial/Practical. Ignore 'Total' rows if they merge components, just extract the base marks if possible.
-    2. Extract ALL available semesters (I to VIII) from the summary table into "semesters".
-    3. OVERALL GRADE/CGPA: Only populate if a final Cumulative CGPA/Letter Grade is visible on the sheet. Otherwise "N.A."
-    4. If 'Semester not cleared' is in Remarks, set 'overall_cgpa': 'N.A.' and 'overall_grade': 'Fail / Semester Not Cleared'.
+    1. Extract ALL subjects into "papers". Include components (Theoretical/Practical).
+    2. Extract ALL available semesters from the summary table into "semesters".
+    3. If there is NO overall CGPA visible, put "N.A."
+    4. MUST output valid JSON only.
     """
 
-    models_to_try = ['gemini-1.5-flash', 'gemini-3.5-flash', 'gemini-1.5-pro']
-    
     last_exception = None
-    for model_name in models_to_try:
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
+    max_retries = 2
+    
+    for attempt in range(max_retries):
+        try:
+            if ai_client_type == "legacy":
+                model = legacy_genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+                response = model.generate_content([prompt, image])
+                result_json = response.text.strip()
+            elif ai_client_type == "new":
                 response = ai_client.models.generate_content(
-                    model=model_name, contents=[prompt, image],
+                    model='gemini-2.0-flash', contents=[prompt, image],
                     config=types.GenerateContentConfig(response_mime_type="application/json")
                 )
                 result_json = response.text.strip()
-                if result_json.startswith("```"):
-                    result_json = result_json.strip("`").strip()
-                    if result_json.lower().startswith("json"):
-                        result_json = result_json[4:].strip()
-                return json.loads(result_json)
-            except Exception as e:
-                last_exception = e
-                err_msg = str(e).lower()
-                if "404" in err_msg or "not found" in err_msg: break 
-                if ("429" in err_msg or "rate" in err_msg): time.sleep(3)
-                else: break 
-    raise last_exception
+            else:
+                raise Exception("Gemini SDK not properly configured. Check your imports/API key.")
 
-def extract_reg_no_bulletproof(text: str):
-    if not text: return None, "Text empty"
-    t = re.sub(r'[—–_~]', '-', text)
-    t_fixed = t.replace('O', '0').replace('o', '0').replace('Q', '0').replace('I', '1').replace('l', '1').replace('S', '5')
-    match = re.search(r'(?:Registration|Regn|Reg|Registra)[^\d]{0,15}([0-9\-\s\.\/]{13,22})', t_fixed, re.IGNORECASE)
-    if match:
-        digits = re.sub(r'\D', '', match.group(1))
-        if len(digits) >= 13:
-            d = digits[:13]
-            return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "Reg Label"
-    all_digits_clusters = re.findall(r'\b\d{13}\b', re.sub(r'\D', ' ', t_fixed))
-    if all_digits_clusters:
-        d = all_digits_clusters[0]
-        return f"{d[:3]}-{d[3:7]}-{d[7:11]}-{d[11:]}", "13-Digit Cluster"
-    return None, "No 13-digit pattern found"
+            if result_json.startswith("```"):
+                result_json = result_json.strip("`").strip()
+                if result_json.lower().startswith("json"):
+                    result_json = result_json[4:].strip()
+            return json.loads(result_json)
+        
+        except Exception as e:
+            last_exception = e
+            if "429" in str(e).lower() or "rate" in str(e).lower():
+                time.sleep(3)
+            else:
+                break 
+
+    raise last_exception
 
 def process_large_pdf_in_background():
     global bg_upload_status
@@ -308,17 +274,18 @@ def process_large_pdf_in_background():
                 if doc: doc.close()
                 return
 
+            ai_error_msg = ""
             try:
                 page = doc[page_num]
                 reg_no = None
                 normalized_semesters = []
                 normalized_papers = []
                 remarks = "Qualified"
-                subject = "BNGA"
+                subject = "Unknown"
                 passout_year = "Nil"
                 
                 # AI Parsing
-                if ai_client and not ai_quota_exceeded:
+                if ai_client_type and not ai_quota_exceeded:
                     try:
                         if page_num > 0: time.sleep(1.5) 
                         data = parse_marksheet_with_gemini_vision(page)
@@ -330,7 +297,7 @@ def process_large_pdf_in_background():
                             roll_no = data.get("roll_no", "Unknown")
                             name = data.get("name", "Unknown Student")
                             course = selected_course if (selected_course and selected_course != "AUTO") else data.get("course", "Unknown")
-                            subject = data.get("subject", "BNGA")
+                            subject = data.get("subject", "Unknown")
                             passout_year = str(data.get("passout_year", "Nil")).strip()
                             remarks = data.get("remarks", "Qualified")
                             overall_cgpa = data.get("overall_cgpa", "N.A.")
@@ -366,22 +333,18 @@ def process_large_pdf_in_background():
                                     "status": str(p.get("status", "")).strip()
                                 })
                     except Exception as ai_err:
-                        print(f"[Page {page_num+1}] AI Error: {str(ai_err)}")
-                        if "429" in str(ai_err).lower() or "rate" in str(ai_err).lower(): ai_quota_exceeded = True
+                        ai_error_msg = str(ai_err)
+                        print(f"[Page {page_num+1}] AI Error: {ai_error_msg}")
+                        if "429" in ai_error_msg.lower() or "rate" in ai_error_msg.lower(): ai_quota_exceeded = True
 
-                # Fallback if AI fails completely
-                if not ai_client or ai_quota_exceeded or not reg_no:
-                    full_text = page.get_text("text") or ""
-                    reg_no_found, _ = extract_reg_no_bulletproof(full_text)
-                    if reg_no_found: reg_no = reg_no_found
-                    if not reg_no:
-                        bg_upload_status["processed_pages"] = page_num + 1
-                        continue
-                    roll_no = "Unknown"
-                    name = "Unknown Student"
-                    course = selected_course
-                    overall_cgpa = "N.A."
-                    overall_grade = "Fail"
+                # Hard stop if reg_no missing, display exact error to UI so user can debug
+                if not reg_no:
+                    error_context = f" (AI Error: {ai_error_msg})" if ai_error_msg else " (Local Text Extraction Failed - Image PDF?)"
+                    bg_upload_status["status_message"] = f"⚠️ Skipped Page {page_num+1}: No Registration No. found.{error_context}"
+                    bg_upload_status["processed_pages"] = page_num + 1
+                    save_upload_state()
+                    time.sleep(2) # Give user a moment to see the error on screen
+                    continue
 
                 # DB Insert / Update
                 pdf_repo_path = f"uploads/pdf_repository/{reg_no}.pdf"
@@ -408,7 +371,6 @@ def process_large_pdf_in_background():
                 existing.remarks = remarks
                 if pdf_repo_path: existing.pdf_document_path = pdf_repo_path
                 
-                # Delete existing related records and insert fresh to avoid duplicates in deep structures
                 db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
                 for sem in normalized_semesters:
                     db.add(SemesterRecord(registration_no=reg_no, **sem))
@@ -463,15 +425,6 @@ def get_db():
 @app.on_event("startup")
 def startup_db_setup():
     Base.metadata.create_all(bind=engine)
-    # Ensure paper_records exists if sqlite didn't generate it natively on old DB
-    with engine.begin() as conn:
-        if "sqlite" in DATABASE_URL:
-            tables = [r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()]
-            if "paper_records" not in tables:
-                conn.execute(text("""CREATE TABLE paper_records (
-                    id INTEGER PRIMARY KEY, registration_no VARCHAR, course_code VARCHAR, course_name VARCHAR,
-                    component VARCHAR, full_marks VARCHAR, marks_obtained VARCHAR, credit VARCHAR, grade VARCHAR, status VARCHAR
-                )"""))
     load_upload_state()
 
 @app.get("/")
@@ -526,7 +479,6 @@ def resume_upload(background_tasks: BackgroundTasks, user: dict = Depends(requir
 def get_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     student = db.query(Student).options(joinedload(Student.semesters), joinedload(Student.papers)).filter(Student.registration_no == reg_no).first()
     if not student: raise HTTPException(status_code=404, detail="Student record not found.")
-    if auto_repair_passout_year(student): db.commit()
 
     return {
         "student": {
@@ -569,42 +521,6 @@ async def update_student_profile_full(reg_no: str, payload: dict, db: Session = 
     db.commit()
     return {"message": "Profile updated successfully!"}
 
-@app.post("/api/admin/update-issuance-detailed/{reg_no}")
-async def update_issuance_detailed(
-    reg_no: str, marksheet_received: bool = Form(...), certificate_received: bool = Form(...),
-    marksheet_issue_date: str = Form(""), certificate_issue_date: str = Form(""),
-    issued_by: str = Form(""), db: Session = Depends(get_db), user: dict = Depends(get_current_user)
-):
-    student = db.query(Student).filter(Student.registration_no == reg_no).first()
-    if not student: raise HTTPException(status_code=404, detail="Student not found")
-    student.marksheet_received = marksheet_received
-    student.certificate_received = certificate_received
-    student.marksheet_issue_date = marksheet_issue_date
-    student.certificate_issue_date = certificate_issue_date
-    student.issued_by = issued_by
-    db.commit()
-    return {"message": "Issuance details updated successfully!"}
-
-@app.post("/api/admin/update-status/{reg_no}")
-async def update_student_status(
-    reg_no: str, course: str = Form(...), marksheet_received: bool = Form(...), certificate_received: bool = Form(...),
-    status: str = Form(...), details: str = Form(""), proof_file: UploadFile = File(None),
-    db: Session = Depends(get_db), user: dict = Depends(get_current_user)
-):
-    student = db.query(Student).filter(Student.registration_no == reg_no).first()
-    student.course = course
-    student.marksheet_received = marksheet_received
-    student.certificate_received = certificate_received
-    student.post_grad_status = status
-    student.post_grad_details = details
-    if proof_file:
-        safe_filename = f"{reg_no}_proof.{proof_file.filename.split('.')[-1]}"
-        file_path = os.path.join("uploads", safe_filename)
-        with open(file_path, "wb") as buffer: shutil.copyfileobj(proof_file.file, buffer)
-        student.proof_document_path = file_path
-    db.commit()
-    return {"message": "Career Record updated!"}
-
 @app.get("/api/admin/all-students")
 def get_all_students(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     return db.query(Student).options(joinedload(Student.semesters)).all()
@@ -617,7 +533,7 @@ def delete_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depe
     db.query(PaperRecord).filter(PaperRecord.registration_no == reg_no).delete()
     db.delete(student)
     db.commit()
-    return {"message": f"Student {reg_no} deleted successfully"}
+    return {"message": f"Student deleted successfully"}
 
 @app.post("/api/admin/clear-all-students")
 def clear_all_students(db: Session = Depends(get_db), user: dict = Depends(require_admin)):
