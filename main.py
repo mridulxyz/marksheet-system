@@ -15,7 +15,7 @@ try:
     import pymupdf as fitz  # PyMuPDF
 except ImportError:
     try:
-        import fitz # Fallback
+        import fitz # Fallback for older versions
     except ImportError:
         fitz = None
 
@@ -47,17 +47,20 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean, text
 from sqlalchemy.orm import sessionmaker, Session, relationship, declarative_base, joinedload
 
-# --- SECURITY ---
+# --- SECURITY (MULTI-USER AUTHENTICATION) ---
 security = HTTPBasic()
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cuadmin123")
 USER1_USERNAME = os.getenv("USER1_USERNAME", "staff1")
 USER1_PASSWORD = os.getenv("USER1_PASSWORD", "staff123")
+USER2_USERNAME = os.getenv("USER2_USERNAME", "staff2")
+USER2_PASSWORD = os.getenv("USER2_PASSWORD", "staff123")
 
 def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
     u, p = credentials.username, credentials.password
     if secrets.compare_digest(u, ADMIN_USERNAME) and secrets.compare_digest(p, ADMIN_PASSWORD): return {"username": u, "role": "admin"}
     if secrets.compare_digest(u, USER1_USERNAME) and secrets.compare_digest(p, USER1_PASSWORD): return {"username": u, "role": "user"}
+    if secrets.compare_digest(u, USER2_USERNAME) and secrets.compare_digest(p, USER2_PASSWORD): return {"username": u, "role": "user"}
     raise HTTPException(status_code=401, detail="Invalid credentials", headers={"WWW-Authenticate": "Basic"})
 
 def require_admin(user: dict = Depends(get_current_user)):
@@ -80,7 +83,7 @@ class Student(Base):
     name = Column(String)
     admission_year = Column(String)
     passout_year = Column(String, default="Nil")
-    course = Column(String, default="Unknown")
+    course = Column(String, default="Unknown Course")
     subject = Column(String, default="Unknown")
     overall_cgpa = Column(String) 
     overall_grade = Column(String)
@@ -135,7 +138,7 @@ bg_upload_status = {
     "is_processing": False, "is_paused": False, "pause_requested": False,
     "total_pages": 0, "processed_pages": 0, "extracted_count": 0,
     "status_message": "Idle", "filename": "", "temp_pdf_path": "", "selected_course": "AUTO",
-    "errors": [] # Added array to store error reasons explicitly
+    "errors": []
 }
 
 def load_upload_state():
@@ -187,17 +190,33 @@ def parse_marksheet_with_gemini_vision(page):
         }
       ],
       "semesters": [
-        {"semester": "I", "year": "2019", "full_marks": "400", "marks_obtained": "248", "credit": "20", "sgpa": "5.624"}
+        {"semester": "I", "year": "2019", "full_marks": "400", "marks": "248", "credit": "20", "sgpa": "5.624"}
       ]
     }
     """
-    for attempt in range(2):
+    
+    # Robust Fallback Loop to prevent 404 NOT FOUND errors
+    models_to_try = [
+        'gemini-1.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-pro',
+        'gemini-1.5-flash-latest',
+        'gemini-3.5-flash', # Retaining your original requested model names just in case
+        'gemini-3.6-flash'
+    ]
+    
+    last_exception = None
+    for model_name in models_to_try:
         try:
             if ai_client_type == "legacy":
-                response = legacy_genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"}).generate_content([prompt, image])
+                model = legacy_genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+                response = model.generate_content([prompt, image])
                 txt = response.text.strip()
             elif ai_client_type == "new":
-                response = ai_client.models.generate_content(model='gemini-1.5-flash', contents=[prompt, image], config=types.GenerateContentConfig(response_mime_type="application/json"))
+                response = ai_client.models.generate_content(
+                    model=model_name, contents=[prompt, image], 
+                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                )
                 txt = response.text.strip()
             else:
                 raise Exception("API Key Missing or SDK Error")
@@ -205,10 +224,22 @@ def parse_marksheet_with_gemini_vision(page):
             if txt.startswith("```"):
                 txt = txt.strip("`").strip()
                 if txt.lower().startswith("json"): txt = txt[4:].strip()
+            
             return json.loads(txt)
+            
         except Exception as e:
-            if attempt == 1: raise e
-            time.sleep(3)
+            last_exception = e
+            err_str = str(e).lower()
+            
+            if "404" in err_str or "not found" in err_str:
+                continue # Model doesn't exist, immediately try the next one in the list
+            if "429" in err_str or "quota" in err_str:
+                time.sleep(3)
+                continue # Rate limited, wait 3 seconds and try the next one
+            
+            continue # For any other arbitrary error, try next model to be safe
+
+    raise last_exception
 
 def process_large_pdf_in_background():
     global bg_upload_status
@@ -247,7 +278,7 @@ def process_large_pdf_in_background():
                         "semester": str(s.get("semester")).strip().upper().replace("SEMESTER", "").strip(),
                         "year": str(s.get("year", "")).strip(),
                         "full_marks": str(s.get("full_marks", "400")).strip(),
-                        "marks_obtained": str(s.get("marks_obtained", "")).strip(),  # FIXED: Matches DB Model exactly
+                        "marks_obtained": str(s.get("marks", s.get("marks_obtained", ""))).strip(),
                         "credit": str(s.get("credit", "20")).strip(),
                         "sgpa": str(s.get("sgpa", "")).strip()
                     })
@@ -370,7 +401,7 @@ def pause_upload(user: dict = Depends(require_admin)):
 @app.post("/api/admin/resume-upload")
 def resume_upload(background_tasks: BackgroundTasks, user: dict = Depends(require_admin)):
     if bg_upload_status["is_paused"]:
-        bg_upload_status["is_processing"] = True; bg_upload_status["is_paused"] = False; save_upload_state()
+        bg_upload_status["is_processing"] = True; bg_upload_status["is_paused"] = False; bg_upload_status["pause_requested"] = False; save_upload_state()
         background_tasks.add_task(process_large_pdf_in_background)
     return {"message": "Resuming..."}
 
@@ -389,7 +420,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db)):
             "issued_by": student.issued_by, "status": student.post_grad_status, 
             "details": student.post_grad_details, "proof": student.proof_document_path, "pdf_path": student.pdf_document_path
         },
-        "semesters": [{"semester": s.semester, "year": s.year, "full_marks": s.full_marks, "marks_obtained": s.marks_obtained, "credit": s.credit, "sgpa": s.sgpa} for s in student.semesters],
+        "semesters": [{"semester": s.semester, "year": s.year, "full_marks": s.full_marks, "marks": s.marks_obtained, "credit": s.credit, "sgpa": s.sgpa} for s in student.semesters],
         "papers": [{"course_code": p.course_code, "course_name": p.course_name, "component": p.component, "full_marks": p.full_marks, "marks_obtained": p.marks_obtained, "credit": p.credit, "grade": p.grade, "status": p.status} for p in student.papers]
     }
 
@@ -401,11 +432,42 @@ async def update_student_profile_full(reg_no: str, payload: dict, db: Session = 
     student.passout_year, student.overall_cgpa, student.overall_grade, student.remarks = payload.get("passout_year"), payload.get("cgpa"), payload.get("grade"), payload.get("remarks")
     
     db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-    for sem in payload.get("semesters", []): db.add(SemesterRecord(registration_no=reg_no, **sem))
+    for sem in payload.get("semesters", []): 
+        db.add(SemesterRecord(registration_no=reg_no, semester=sem.get("semester"), year=sem.get("year"), full_marks=sem.get("full_marks"), marks_obtained=sem.get("marks"), credit=sem.get("credit"), sgpa=sem.get("sgpa")))
     db.query(PaperRecord).filter(PaperRecord.registration_no == reg_no).delete()
-    for p in payload.get("papers", []): db.add(PaperRecord(registration_no=reg_no, **p))
+    for p in payload.get("papers", []): 
+        db.add(PaperRecord(registration_no=reg_no, **p))
     db.commit()
     return {"message": "Success"}
+
+@app.post("/api/admin/update-issuance-detailed/{reg_no}")
+async def update_issuance_detailed(
+    reg_no: str, marksheet_received: bool = Form(...), certificate_received: bool = Form(...),
+    marksheet_issue_date: str = Form(""), certificate_issue_date: str = Form(""),
+    issued_by: str = Form(""), db: Session = Depends(get_db)
+):
+    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    if not student: raise HTTPException(status_code=404, detail="Student not found")
+    student.marksheet_received, student.certificate_received = marksheet_received, certificate_received
+    student.marksheet_issue_date, student.certificate_issue_date, student.issued_by = marksheet_issue_date, certificate_issue_date, issued_by
+    db.commit()
+    return {"message": "Updated!"}
+
+@app.post("/api/admin/update-status/{reg_no}")
+async def update_student_status(
+    reg_no: str, course: str = Form(...), marksheet_received: bool = Form(...), certificate_received: bool = Form(...),
+    status: str = Form(...), details: str = Form(""), proof_file: UploadFile = File(None), db: Session = Depends(get_db)
+):
+    student = db.query(Student).filter(Student.registration_no == reg_no).first()
+    student.course, student.marksheet_received, student.certificate_received = course, marksheet_received, certificate_received
+    student.post_grad_status, student.post_grad_details = status, details
+    if proof_file:
+        safe_filename = f"{reg_no}_proof.{proof_file.filename.split('.')[-1]}"
+        file_path = os.path.join("uploads", safe_filename)
+        with open(file_path, "wb") as buffer: shutil.copyfileobj(proof_file.file, buffer)
+        student.proof_document_path = file_path
+    db.commit()
+    return {"message": "Record updated!"}
 
 @app.get("/api/admin/all-students")
 def get_all_students(db: Session = Depends(get_db)): return db.query(Student).options(joinedload(Student.semesters)).all()
