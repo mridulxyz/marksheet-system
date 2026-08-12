@@ -13,10 +13,13 @@ load_dotenv()  # This forces python to read your new .env file!
 
 # Safe Imports
 try:
-    import fitz  # PyMuPDF
+    import pymupdf as fitz  # PyMuPDF
 except ImportError:
-    fitz = None
-    print("WARNING: 'PyMuPDF' (fitz) is not installed! PDF processing will fail.")
+    try:
+        import fitz # Fallback for older versions
+    except ImportError:
+        fitz = None
+    
 
 try:
     from google import genai
