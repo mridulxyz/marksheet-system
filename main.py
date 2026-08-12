@@ -6,6 +6,7 @@ import json
 import base64
 import time
 import gc
+import io
 from PIL import Image
 
 # Safe Imports
@@ -15,9 +16,10 @@ except ImportError:
     fitz = None
 
 try:
-    import openai
+    from google import genai
+    from google.genai import types
 except ImportError:
-    openai = None
+    genai = None
 
 try:
     import pdfplumber
@@ -72,9 +74,9 @@ def require_admin(user: dict = Depends(get_current_user)):
         )
     return user
 
-# --- OPENAI CLIENT SETUP ---
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ai_client = openai.OpenAI(api_key=OPENAI_API_KEY) if (openai and OPENAI_API_KEY) else None
+# --- GEMINI CLIENT SETUP (Using Latest Google GenAI SDK) ---
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+ai_client = genai.Client(api_key=GEMINI_API_KEY) if (genai and GEMINI_API_KEY) else None
 
 # --- DATABASE SETUP ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./calcutta_university.db")
@@ -83,8 +85,8 @@ if DATABASE_URL.startswith("postgres://"):
 
 engine = create_engine(
     DATABASE_URL, 
-    pool_pre_ping=True,      # Auto-reconnects dropped SSL handles
-    pool_recycle=300,        # Recycles connections every 5 mins
+    pool_pre_ping=True,      
+    pool_recycle=300,        
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -97,7 +99,7 @@ class Student(Base):
     roll_no = Column(String)
     name = Column(String)
     admission_year = Column(String)
-    passout_year = Column(String, default="Nil") # NEW
+    passout_year = Column(String, default="Nil")
     course = Column(String, default="Unknown Course")
     subject = Column(String, default="BNGA")
     overall_cgpa = Column(String) 
@@ -113,7 +115,7 @@ class Student(Base):
     post_grad_status = Column(String, default="Unknown") 
     post_grad_details = Column(String, default="") 
     proof_document_path = Column(String, default="") 
-    pdf_document_path = Column(String, default="")  # PDF Repository Path
+    pdf_document_path = Column(String, default="") 
     
     semesters = relationship("SemesterRecord", back_populates="student", cascade="all, delete-orphan")
 
@@ -173,14 +175,14 @@ def auto_repair_passout_year(student_obj):
                 return True
     return False
 
-# --- RESTORED ORIGINAL OPENAI GPT-4o VISION PARSER ---
-
-def parse_marksheet_with_openai_vision(page):
+# --- GEMINI 3.6 FLASH VISION PARSER ---
+def parse_marksheet_with_gemini_vision(page):
     pix = page.get_pixmap(dpi=200)
     img_bytes = pix.tobytes("jpeg")
-    base64_image = base64.b64encode(img_bytes).decode('utf-8')
+    
+    # Load image for Gemini
+    image = Image.open(io.BytesIO(img_bytes))
 
-    # FULLY RESTORED ORIGINAL PROMPT RULES + PASSOUT YEAR LOGIC
     prompt = """
     You are an expert transcript parser. Carefully inspect this Calcutta University Grade Sheet image with 100% precision and return ONLY a valid JSON object matching this exact schema:
 
@@ -209,7 +211,7 @@ def parse_marksheet_with_openai_vision(page):
     2. DO NOT SKIP ANY SEMESTER ROWS: Carefully read every row from Semester I to Semester VI. Do NOT omit Semester IV or any other row if present in the summary table!
     3. DO NOT READ TOP SUBJECT TABLES: Do NOT extract numbers from the course component tables above (e.g. BNGA-CC13, CC14, DSE-A4, DSE-B4). Read ONLY from the summary table at the bottom.
     4. ONLY PRESENT SEMESTERS: If a semester is empty/blank in the table (e.g. Sem IV, V, VI blank for a failed student), do NOT include it in the 'semesters' array!
-    5. SUBJECT CODE: Extract subject code prefix from course code (e.g. 'BNGA' from BNGA-CC13 or 'ENGG' from ENGG-CC13). Default to 'BNGA' if not clearly stated. DO NOT return full words like 'chemistry'.
+    5. SUBJECT CODE: Extract subject code prefix from course code (e.g. 'BNGA' from BNGA-CC13 or 'ENGG' from ENGG-CC13). Default to 'BNGA' if not clearly stated. DO NOT return full words like 'chemistry' or 'physics'.
     6. OVERALL GRADE: Read 'overall_grade' ONLY from column 'Letter Grade' in row 'VI' of the bottom summary table (e.g. B+, A+, A, B, C+, C, D, O). Never read words like 'Good' or status 'P'.
     7. OVERALL CGPA: Read 'overall_cgpa' ONLY from column 'CGPA' in row 'VI' of the bottom summary table (e.g. 6.819).
     8. IF SEMESTER NOT CLEARED: If 'Semester not cleared' is printed in Remarks, set 'overall_cgpa': 'N.A.' and 'overall_grade': 'Fail / Semester Not Cleared'.
@@ -222,26 +224,15 @@ def parse_marksheet_with_openai_vision(page):
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = ai_client.chat.completions.create(
-                model="gpt-4o",
-                response_format={"type": "json_object"},
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}",
-                                    "detail": "high"
-                                }
-                            }
-                        ]
-                    }
-                ]
+            # Using Gemini 3.6 Flash (The newest, most robust multimodal model)
+            response = ai_client.models.generate_content(
+                model='gemini-3.6-flash',
+                contents=[prompt, image],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
             )
-            result_json = response.choices[0].message.content
+            result_json = response.text
             return json.loads(result_json)
         except Exception as e:
             err_msg = str(e).lower()
@@ -327,12 +318,10 @@ def extract_course(text: str):
 
 def extract_passout_year(text: str):
     if not text: return "Nil"
-    # Matches patterns like "Examination - 2024" or "Examination 2024"
     match = re.search(r'Examination[^\n]*?\b(20[1-3]\d)\b', text, re.IGNORECASE)
     if match:
         return match.group(1)
     
-    # Fallback: Find a standard year near the top lines (top 20 lines)
     lines = text.split('\n')[:20]
     for line in lines:
         m = re.search(r'\b(20[1-3]\d)\b', line)
@@ -354,12 +343,10 @@ def parse_summary_table_local(table_text: str):
     if rem_match:
         remarks = rem_match.group(1).strip()
 
-    # Check if letter grade exists to verify if total exam is cleared
     grade_m = re.search(r'\b(A\+|B\+|C\+|A|B|C|D|O)(?!\w)', text_clean)
     if grade_m: 
         grade = grade_m.group(1)
     else:
-        # no grade means failed total exam (even if remarks says "Semester Cleared")
         is_not_cleared = True
 
     if is_not_cleared:
@@ -401,7 +388,7 @@ def parse_summary_table_local(table_text: str):
 
     return sems, cgpa, grade, remarks
 
-# --- BACKGROUND WORKER FOR 1000-PAGE PDFs ---
+# --- BACKGROUND WORKER FOR PDFs ---
 
 def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
     global bg_upload_status
@@ -429,14 +416,11 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                 subject = "BNGA"
                 passout_year = "Nil"
                 
-                # --- STRATEGY 1: OPENAI VISION (GPT-4o) ---
+                # --- STRATEGY 1: GEMINI VISION ---
                 if ai_client and not ai_quota_exceeded:
                     try:
-                        if page_num > 0:
-                            time.sleep(0.3)
-
-                        data = parse_marksheet_with_openai_vision(page)
-
+                        if page_num > 0: time.sleep(0.3)
+                        data = parse_marksheet_with_gemini_vision(page)
                         reg_no = data.get("registration_no")
                         if not reg_no or reg_no == "null":
                             bg_upload_status["processed_pages"] = page_num + 1
@@ -495,10 +479,10 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     roll_no = extract_roll_no_bulletproof(full_text)
                     name = extract_name_bulletproof(full_text)
                     course = selected_course if (selected_course and selected_course != "AUTO") else extract_course(full_text)
-
+                    
                     subj_match = re.search(r'\b([A-Z]{3,4})\-[A-Z0-9]+\b', full_text)
                     subject = subj_match.group(1).upper() if subj_match else "BNGA"
-
+                    
                     passout_year = extract_passout_year(full_text)
 
                     rect = page.rect
@@ -506,7 +490,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     table_text = extract_text_rows_from_rect(page, table_rect)
 
                     normalized_semesters, overall_cgpa, overall_grade, remarks = parse_summary_table_local(table_text)
-
+                
                 # --- STRICT ENFORCEMENT & BULLETPROOF FALLBACK ---
                 if "fail" in overall_grade.lower() or "not cleared" in str(remarks).lower() or overall_grade in ["", "None", "N.A.", "Fail / Semester Not Cleared"]:
                     passout_year = "Nil"
@@ -516,7 +500,6 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                 else:
                     passout_year = str(passout_year).strip()
                     if passout_year.lower() in ["nil", "unknown", "", "none", "null", "n.a."]:
-                        # Bulletproof Passout Year Fallback from Semesters
                         max_yr = None
                         max_val = 0
                         for sem in normalized_semesters:
@@ -534,14 +517,14 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         else:
                             passout_year = "Nil"
 
-                # Save 1-page individual PDF copy for Menu 7 Document Repository
+                # Save PDF copy
                 pdf_repo_path = f"uploads/pdf_repository/{reg_no}.pdf"
                 try:
                     new_pdf = fitz.open()
                     new_pdf.insert_pdf(doc, from_page=page_num, to_page=page_num)
                     new_pdf.save(pdf_repo_path)
                     new_pdf.close()
-                except Exception as pdf_save_err:
+                except Exception:
                     pdf_repo_path = ""
 
                 # Database Upsert
@@ -560,39 +543,21 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                     db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
                     for sem in normalized_semesters:
                         db.add(SemesterRecord(
-                            registration_no=reg_no, 
-                            semester=sem["semester"], 
-                            year=sem["year"], 
-                            full_marks=sem["full_marks"],
-                            marks_obtained=sem["marks"], 
-                            credit=sem["credit"],
-                            sgpa=sem["sgpa"]
+                            registration_no=reg_no, semester=sem["semester"], year=sem["year"], 
+                            full_marks=sem["full_marks"], marks_obtained=sem["marks"], credit=sem["credit"], sgpa=sem["sgpa"]
                         ))
                 else:
                     admission_year = "20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown"
                     student = Student(
-                        registration_no=reg_no, 
-                        roll_no=roll_no, 
-                        name=name, 
-                        admission_year=admission_year, 
-                        passout_year=passout_year,
-                        course=course, 
-                        subject=subject,
-                        overall_cgpa=overall_cgpa, 
-                        overall_grade=overall_grade,
-                        remarks=remarks,
-                        pdf_document_path=pdf_repo_path
+                        registration_no=reg_no, roll_no=roll_no, name=name, admission_year=admission_year, 
+                        passout_year=passout_year, course=course, subject=subject, overall_cgpa=overall_cgpa, 
+                        overall_grade=overall_grade, remarks=remarks, pdf_document_path=pdf_repo_path
                     )
                     db.add(student)
                     for sem in normalized_semesters:
                         db.add(SemesterRecord(
-                            registration_no=reg_no, 
-                            semester=sem["semester"], 
-                            year=sem["year"], 
-                            full_marks=sem["full_marks"],
-                            marks_obtained=sem["marks"], 
-                            credit=sem["credit"],
-                            sgpa=sem["sgpa"]
+                            registration_no=reg_no, semester=sem["semester"], year=sem["year"], 
+                            full_marks=sem["full_marks"], marks_obtained=sem["marks"], credit=sem["credit"], sgpa=sem["sgpa"]
                         ))
 
                 extracted_count += 1
@@ -708,7 +673,7 @@ async def upload_marksheet(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...), 
     selected_course: str = Form("AUTO"),
-    user: dict = Depends(require_admin) # RESTRICTED TO ADMIN
+    user: dict = Depends(require_admin)
 ):
     temp_pdf_path = f"temp_{secrets.token_hex(4)}_{file.filename}"
     with open(temp_pdf_path, "wb") as buffer:
