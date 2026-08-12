@@ -9,143 +9,103 @@
          :root {
             --primary: #2563eb; --primary-hover: #1d4ed8; --secondary: #1e3a8a; --secondary-light: #1e293b;
             --accent: #0d9488; --success: #10b981; --success-light: #d1fae5; --danger: #ef4444; --danger-light: #fee2e2;
-            --warning: #f59e0b; --warning-light: #fef3c7; --bg-main: #f8fafc; --card-bg: #ffffff;
+            --warning: #f59e0b; --bg-main: #f8fafc; --card-bg: #ffffff;
             --border-color: #e2e8f0; --text-dark: #0f172a; --text-muted: #64748b;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg-main); color: var(--text-dark); min-height: 100vh; display: flex; flex-direction: column; }
         
-        .navbar { background-color: var(--secondary); color: white; padding: 0 25px; height: 70px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.15); position: sticky; top: 0; z-index: 1000; }
+        .navbar { background-color: var(--secondary); color: white; padding: 0 25px; height: 70px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 1000; }
         .nav-brand { display: flex; align-items: center; gap: 12px; }
         .brand-logo { font-size: 26px; background: linear-gradient(135deg, #3b82f6, #06b6d4); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
-        .brand-title { font-size: 16px; font-weight: 700; color: #f8fafc; line-height: 1.2; }
+        .brand-title { font-size: 16px; font-weight: 700; color: #f8fafc; }
         .brand-subtitle { font-size: 11px; color: #38bdf8; font-weight: 600; text-transform: uppercase; }
 
         .nav-tabs { display: flex; gap: 6px; height: 100%; align-items: center; }
-        .nav-tab { padding: 10px 14px; color: #94a3b8; background: transparent; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s ease; }
+        .nav-tab { padding: 10px 14px; color: #94a3b8; background: transparent; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
         .nav-tab:hover { color: #f8fafc; background: rgba(255,255,255,0.08); }
-        .nav-tab.active { color: #ffffff; background-color: var(--primary); box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4); }
-
-        .user-badge { background-color: var(--secondary-light); border: 1px solid #334155; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; color: #38bdf8; }
+        .nav-tab.active { color: #ffffff; background-color: var(--primary); }
 
         .main-container { flex: 1; padding: 30px 40px; max-width: 1400px; width: 100%; margin: 0 auto; }
-        .section { display: none; background: var(--card-bg); padding: 35px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid var(--border-color); animation: fadeIn 0.3s ease-in-out; }
+        .section { display: none; background: var(--card-bg); padding: 35px; border-radius: 12px; border: 1px solid var(--border-color); }
         .section.active { display: block; }
-
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
         h2 { font-size: 22px; color: var(--secondary); margin-bottom: 8px; font-weight: 700; }
         p.section-desc { font-size: 14px; color: var(--text-muted); margin-bottom: 25px; }
 
         label { font-size: 13px; font-weight: 700; color: #334155; margin-top: 15px; display: block; }
-        input[type="text"], input[type="date"], input[type="file"], select { padding: 12px 14px; margin: 6px 0 12px 0; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; background: #ffffff; }
+        input[type="text"], input[type="date"], input[type="file"], select { padding: 12px 14px; margin: 6px 0; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
         
-        button { padding: 12px 20px; margin: 8px 0; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.2s; background-color: var(--primary); color: white; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-        button:hover { background-color: var(--primary-hover); }
-        .btn-green { background-color: var(--success) !important; width: auto !important; }
-        .btn-orange { background-color: var(--warning) !important; width: auto !important; color: #000 !important; }
-        .btn-red { background-color: var(--danger) !important; width: auto !important; }
-        .btn-gray { background-color: var(--text-muted) !important; width: auto !important; }
-        .btn-sm-red { background-color: var(--danger) !important; padding: 6px 12px !important; font-size: 12px !important; width: auto !important; }
+        button { padding: 12px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; background-color: var(--primary); color: white; display: inline-flex; align-items: center; gap: 8px; }
+        .btn-green { background-color: var(--success); }
+        .btn-orange { background-color: var(--warning); color: #000; }
+        .btn-red { background-color: var(--danger); }
+        .btn-gray { background-color: var(--text-muted); }
 
         .dropzone { border: 2px dashed #94a3b8; border-radius: 12px; padding: 40px; text-align: center; background: #f1f5f9; cursor: pointer; margin: 15px 0; }
-        .dropzone:hover { border-color: var(--primary); background: #eff6ff; }
-        .dropzone-icon { font-size: 42px; color: var(--primary); margin-bottom: 10px; }
+        .dropzone:hover { border-color: var(--primary); }
+
+        /* PROPER SEARCH BAR CSS to fix the stretching issue */
+        .search-bar-container { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; width: 100%; }
+        .search-bar-container input { flex: 1; margin: 0; min-width: 200px; }
+        .search-bar-container button { flex-shrink: 0; width: auto !important; padding: 12px 24px; margin: 0; }
 
         .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid var(--border-color); margin-bottom: 25px; }
         .result-card { display: grid; grid-template-columns: 2fr 1fr 1fr; background: linear-gradient(135deg, #ecfdf5, #e0f2fe); border: 2px solid #a7f3d0; border-radius: 12px; padding: 20px 30px; margin-bottom: 25px; text-align: center; }
-        .result-card-item label { font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin: 0; }
-        .result-card-item h2 { font-size: 22px; color: var(--secondary); margin: 4px 0 0 0; }
-        .result-card-item h1 { font-size: 34px; color: var(--success); margin: 4px 0 0 0; }
-
-        .card { background: #ffffff; border: 1px solid var(--border-color); padding: 25px; border-radius: 10px; margin-top: 20px; }
+        .result-card h2 { color: var(--secondary); margin: 4px 0 0; }
+        .result-card h1 { font-size: 34px; color: var(--success); margin: 4px 0 0; }
 
         table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 15px; font-size: 14px; }
         th, td { border: 1px solid #e2e8f0; padding: 12px 14px; }
-        th { background-color: #1e293b; color: white; font-weight: 600; font-size: 13px; text-transform: uppercase; }
+        th { background-color: #1e293b; color: white; }
         tr:nth-child(even) { background-color: #f8fafc; }
-        .status-tag { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .tag-yes { background-color: var(--success-light); color: #047857; border: 1px solid #a7f3d0; }
-        .tag-no { background-color: var(--danger-light); color: #b91c1c; border: 1px solid #fecaca; }
 
         .toolbar { display: flex; gap: 15px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px; background: #f8fafc; padding: 18px; border-radius: 10px; border: 1px solid var(--border-color); }
         .toolbar-group { display: flex; gap: 10px; align-items: center; flex: 1; min-width: 220px; }
-        .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-top: 25px; }
-        .chart-box { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 25px; text-align: center; }
-        .progress-card { background: #eff6ff; border: 2px solid #bfdbfe; padding: 20px; border-radius: 10px; margin-top: 20px; font-size: 15px; color: #1e40af; }
+        .toolbar-group select, .toolbar-group input { margin: 0; }
         
-        /* Flexbox overrides for search bars so buttons don't crush the inputs */
-        .search-bar-container { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; }
-        .search-bar-container input { flex: 1; min-width: 250px; margin: 0; }
+        .progress-card { background: #eff6ff; border: 2px solid #bfdbfe; padding: 20px; border-radius: 10px; margin-top: 20px; font-size: 15px; color: #1e40af; }
+        .error-log { margin-top: 10px; color: var(--danger); font-size: 13px; font-weight: bold; background: var(--danger-light); padding: 10px; border-radius: 8px; }
     </style>
 </head>
 <body>
 
-    <!-- TOP NAVIGATION BAR -->
     <header class="navbar">
-        <div class="nav-brand">
-            <div class="brand-logo">🎓</div>
-            <div>
-                <div class="brand-title">Shyampur Siddheswari Mahavidyalaya</div>
-                <div class="brand-subtitle">Marksheet Management Portal</div>
-            </div>
-        </div>
-
+        <div class="nav-brand"><div class="brand-logo">🎓</div><div><div class="brand-title">Shyampur Siddheswari Mahavidyalaya</div><div class="brand-subtitle">Marksheet Portal</div></div></div>
         <nav class="nav-tabs">
             <button class="nav-tab active" id="tab-upload" onclick="switchTab(event, 'upload')">1. 📤 Upload</button>
             <button class="nav-tab" id="tab-search" onclick="switchTab(event, 'student-search')">2. 🔍 Profile</button>
-            <button class="nav-tab" onclick="switchTab(event, 'doc-issuance')">3. 📜 Issuance</button>
-            <button class="nav-tab" onclick="switchTab(event, 'career-status')">4. 💼 Career</button>
-            <button class="nav-tab" onclick="switchTab(event, 'stats'); renderCharts();">5. 📊 Analytics</button>
-            <button class="nav-tab" onclick="switchTab(event, 'directory'); fetchDirectory();">6. 📁 Directory</button>
-            <button class="nav-tab" onclick="switchTab(event, 'repository'); fetchPdfRepository();">7. 📂 PDF Repository</button>
+            <button class="nav-tab" onclick="switchTab(event, 'directory'); fetchDirectory();">3. 📁 Directory</button>
+            <button class="nav-tab" onclick="switchTab(event, 'repository'); fetchPdfRepository();">4. 📂 Repository</button>
         </nav>
-
         <div style="display: flex; align-items: center;">
-            <div class="user-badge" id="userBadge">Checking login...</div>
-            <button onclick="logout()" class="btn-red" style="padding: 6px 14px !important; font-size: 12px !important; border-radius: 20px; margin-left: 10px;">Logout</button>
+            <div id="userBadge" style="background:#334155; padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; color:#38bdf8;">Checking...</div>
+            <button onclick="logout()" class="btn-red" style="padding: 6px 14px; font-size: 12px; border-radius: 20px; margin-left: 10px;">Logout</button>
         </div>
     </header>
 
     <main class="main-container">
-        
-        <!-- 1. UPLOAD MARKSHEETS -->
+        <!-- 1. UPLOAD -->
         <section id="upload" class="section active">
             <h2>Cloud OCR: Extract Full Marksheets (Admin Only)</h2>
-            <p class="section-desc">Upload Marksheets PDFs to extract detailed subjects & semester records into the database automatically.</p>
-            
-            <label><b>Select Course for this Upload Batch:</b></label>
-            <select id="uploadCourseSelect">
-                <option value="AUTO">Auto-Detect Course from Marksheet PDF (Default)</option>
-                <option value="B.A. (Honours)">B.A. (Honours)</option>
-                <option value="B.A. (MDC)">B.A. (MDC)</option>
-                <option value="B.Sc. (Honours)">B.Sc. (Honours)</option>
-                <option value="B.Sc. (MDC)">B.Sc. (MDC)</option>
-                <option value="B.Com. (Honours)">B.Com. (Honours)</option>
-                <option value="B.Com. (MDC)">B.Com. (MDC)</option>
-            </select>
-
+            <select id="uploadCourseSelect"><option value="AUTO">Auto-Detect Course</option></select>
             <div class="dropzone" id="pdfDropzone" onclick="document.getElementById('pdfFile').click();">
-                <div class="dropzone-icon">📄</div>
-                <div style="font-size: 16px; font-weight: 700; color: #334155;">Click to select or Drag & Drop PDF Marksheets here</div>
+                <div class="dropzone-icon">📄</div><div>Click or Drag PDF Marksheets here</div>
                 <div id="fileSelectedName" style="margin-top: 10px; font-weight: bold; color: #2563eb;"></div>
             </div>
             <input type="file" id="pdfFile" accept="application/pdf" style="display:none;" onchange="updateFileNameDisplay()">
-
-            <div style="display: flex; gap: 10px;">
-                <button id="uploadBtn" class="btn-green" style="width: auto !important; padding: 12px 25px !important;" onclick="uploadPDF()">🚀 Start Upload & Background Extraction</button>
-                <button id="pauseBtn" onclick="pauseUpload()" class="btn-orange" style="display:none; padding: 12px 25px !important;">⏸️ Pause Processing</button>
-                <button id="resumeBtn" onclick="resumeUpload()" class="btn-green" style="display:none; padding: 12px 25px !important;">▶️ Resume Processing</button>
-            </div>
             
+            <div style="display: flex; gap: 10px;">
+                <button id="uploadBtn" class="btn-green" onclick="uploadPDF()">🚀 Start Extraction</button>
+                <button id="pauseBtn" class="btn-orange" onclick="pauseUpload()" style="display:none;">⏸️ Pause</button>
+                <button id="resumeBtn" class="btn-green" onclick="resumeUpload()" style="display:none;">▶️ Resume</button>
+            </div>
             <div id="upload-msg"></div>
         </section>
 
-        <!-- 2. STUDENT PROFILE & EDIT -->
+        <!-- 2. STUDENT PROFILE -->
         <section id="student-search" class="section">
             <h2>Search Student Academic Profile</h2>
-            <p class="section-desc">Search by registration number to view or manually correct student academic records (Detailed Subjects & Semesters).</p>
-            
             <div class="search-bar-container">
                 <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 424-1211-0240-19)">
                 <button onclick="fetchStudentProfile()" class="btn-green">🔍 Search Profile</button>
@@ -153,234 +113,91 @@
             
             <div id="profile-area" style="display: none; margin-top: 25px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h3>Student Overview</h3>
-                    <button id="toggleEditBtn" onclick="toggleEditMode()" class="btn-orange">✏️ Edit Profile & Marks</button>
+                    <h3>Student Overview</h3><button id="toggleEditBtn" onclick="toggleEditMode()" class="btn-orange">✏️ Edit</button>
                 </div>
 
                 <div class="result-card">
-                    <div class="result-card-item">
-                        <label>Candidate Name</label>
-                        <h2 id="s-name"></h2>
-                        <input type="text" id="edit-name" style="display:none;">
-                    </div>
-                    <div class="result-card-item">
-                        <label>Final CGPA</label>
-                        <h1 id="s-cgpa-banner"></h1>
-                        <input type="text" id="edit-cgpa" style="display:none; text-align:center;">
-                    </div>
-                    <div class="result-card-item">
-                        <label>Overall Grade</label>
-                        <h2 id="s-grade-banner"></h2>
-                        <input type="text" id="edit-grade" style="display:none; text-align:center;">
-                    </div>
+                    <div><label>Name</label><h2 id="s-name"></h2><input type="text" id="edit-name" style="display:none;"></div>
+                    <div><label>CGPA</label><h1 id="s-cgpa-banner"></h1><input type="text" id="edit-cgpa" style="display:none; text-align:center;"></div>
+                    <div><label>Grade</label><h2 id="s-grade-banner"></h2><input type="text" id="edit-grade" style="display:none; text-align:center;"></div>
                 </div>
 
                 <div class="info-grid">
                     <div><b>Reg No:</b> <span id="s-reg"></span></div>
                     <div><b>Roll No:</b> <span id="s-roll"></span> <input type="text" id="edit-roll" style="display:none;"></div>
                     <div><b>Course:</b> <span id="s-course"></span> <input type="text" id="edit-course" style="display:none;"></div>
-                    <div><b>Subject Code:</b> <span id="s-subject"></span> <input type="text" id="edit-subject" style="display:none;"></div>
-                    <div><b>Passout Year:</b> <span id="s-pass-year"></span> <input type="text" id="edit-pass-year" style="display:none;" placeholder="YYYY or Nil"></div>
-                    <div><b>Remarks Statement:</b> <span id="s-remarks" style="color:var(--success); font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
+                    <div><b>Subject:</b> <span id="s-subject"></span> <input type="text" id="edit-subject" style="display:none;"></div>
+                    <div><b>Passout Year:</b> <span id="s-pass-year"></span> <input type="text" id="edit-pass-year" style="display:none;"></div>
+                    <div><b>Remarks:</b> <span id="s-remarks"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
                 </div>
 
-                <!-- FULL DIGITIZED SUBJECT MARK TABLE -->
-                <div id="paper-table-container" style="margin-top: 30px;">
-                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Detailed Subject/Paper Marks Breakdown</h3>
+                <div style="margin-top: 30px;">
+                    <h3 style="color:var(--secondary);">Detailed Subject/Paper Marks Breakdown</h3>
                     <table>
-                        <thead><tr>
-                            <th>Course Code</th><th>Course Name</th><th>Component</th>
-                            <th>Full Marks</th><th>Marks Obtained</th><th>Credit</th>
-                            <th>Grade</th><th>Status</th>
-                        </tr></thead>
+                        <thead><tr><th>Course Code</th><th>Course Name</th><th>Component</th><th>Full Marks</th><th>Marks Obtained</th><th>Credit</th><th>Grade</th><th>Status</th></tr></thead>
                         <tbody id="paper-table-body"></tbody>
                     </table>
-                    <button type="button" id="addPaperRowBtn" onclick="addPaperRow()" class="btn-orange" style="display:none; margin-top: 10px; width:200px !important;">+ Add Subject Row</button>
+                    <button type="button" id="addPaperRowBtn" onclick="addPaperRow()" class="btn-orange" style="display:none; margin-top: 10px; width:auto;">+ Add Row</button>
                 </div>
 
-                <!-- SEMESTER SUMMARY TABLE -->
-                <div id="sem-table-container" style="margin-top: 40px;">
-                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Semester-wise Performance Summary (I - VIII)</h3>
+                <div style="margin-top: 40px;">
+                    <h3 style="color:var(--secondary);">Semester Summary (I - VIII)</h3>
                     <table>
-                        <thead><tr><th>Semester</th><th>Exam Year</th><th>Full Marks</th><th>Marks Obtained</th><th>Semester Credit</th><th>SGPA</th></tr></thead>
+                        <thead><tr><th>Semester</th><th>Exam Year</th><th>Full Marks</th><th>Marks Obtained</th><th>Credit</th><th>SGPA</th></tr></thead>
                         <tbody id="sem-table-body"></tbody>
                     </table>
                 </div>
 
                 <div id="save-edit-btn-container" style="display: none; margin-top: 20px;">
-                    <button onclick="saveFullProfileEdit()" class="btn-green" style="width: 100% !important; padding: 15px !important;">💾 Save All Profile & Marks Updates</button>
-                    <div id="edit-msg" style="margin-top: 10px; font-weight: bold;"></div>
+                    <button onclick="saveFullProfileEdit()" class="btn-green" style="width:100%;">💾 Save Updates</button>
                 </div>
             </div>
         </section>
 
-        <!-- 3. DOCUMENT ISSUANCE -->
-        <section id="doc-issuance" class="section">
-            <h2>Document Issuance Tracker</h2>
-            <div class="search-bar-container">
-                <input type="text" id="docRegNo" placeholder="Enter Registration Number">
-                <button onclick="loadDocStatus()" class="btn-green">Load Record</button>
-            </div>
-            <div id="doc-form-area" style="display: none;" class="card">
-                <h3 id="doc-student-title" style="color:var(--primary);"></h3>
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-top:15px;">
-                    <div>
-                        <input type="checkbox" id="marksheetCb"> <label for="marksheetCb" style="display:inline;">Marksheet Issued</label>
-                        <label><b>Marksheet Issue Date:</b></label>
-                        <input type="date" id="marksheetDate">
-                    </div>
-                    <div>
-                        <input type="checkbox" id="certCb"> <label for="certCb" style="display:inline;">Certificate Issued</label>
-                        <label><b>Certificate Issue Date:</b></label>
-                        <input type="date" id="certDate">
-                    </div>
-                </div>
-                <label style="margin-top:20px; display:block;"><b>Issued By (Employee Name):</b></label>
-                <select id="issuedBySelect">
-                    <option value="Roma Pore">Roma Pore</option>
-                    <option value="Ruma Bhunia">Ruma Bhunia</option>
-                    <option value="Mita Das">Mita Das</option>
-                    <option value="Other">Other</option>
-                </select>
-                <button onclick="saveDocStatusDetailed()" class="btn-green" style="margin-top: 20px;">Save Issuance Record</button>
-                <div id="doc-msg" style="margin-top: 10px; font-weight: bold;"></div>
-            </div>
-        </section>
-
-        <!-- 4. CAREER & PLACEMENTS -->
-        <section id="career-status" class="section">
-            <h2>Career & Post-Graduation Profile</h2>
-            <div class="search-bar-container">
-                <input type="text" id="careerRegNo" placeholder="Enter Registration Number">
-                <button onclick="loadCareerStatus()" class="btn-green">Load Record</button>
-            </div>
-            <div id="career-form-area" style="display: none;" class="card">
-                <h3 id="career-student-title" style="color:var(--primary);"></h3>
-                <input type="hidden" id="s-course-edit"> 
-                <label><b>Current Status:</b></label>
-                <select id="postGradStatus">
-                    <option value="Unknown">Unknown</option>
-                    <option value="Looking for Job">Looking for Job</option>
-                    <option value="Private Job">Private Job</option>
-                    <option value="Govt Job">Government Job</option>
-                    <option value="Business">Business / Self-Employed</option>
-                    <option value="Higher Study">Higher Study (M.A, M.Sc, etc.)</option>
-                </select>
-                <label><b>Job / Institution Details:</b></label>
-                <input type="text" id="postGradDetails" placeholder="e.g. TCS / Calcutta University">
-                <label><b>Upload Proof Document:</b></label>
-                <input type="file" id="proofFile" accept="image/*,application/pdf">
-                <div id="current-proof-link" style="margin: 8px 0; font-size: 13px;"></div>
-                <button onclick="saveCareerStatus()" class="btn-green" style="margin-top: 15px;">Save Career Profile</button>
-                <div id="career-msg" style="margin-top: 10px; font-weight: bold;"></div>
-            </div>
-        </section>
-
-        <!-- 5. RESULT STATISTICS -->
-        <section id="stats" class="section">
-            <h2>Overall Result Statistics & Analytics</h2>
-            <div class="toolbar">
-                <div class="toolbar-group">
-                    <label><b>Passout Year:</b></label>
-                    <select id="statsYear" onchange="renderCharts()" style="margin:0;">
-                        <option value="ALL">All Years</option>
-                        <option value="2023">2023</option>
-                        <option value="2024">2024</option>
-                        <option value="2025">2025</option>
-                        <option value="2026">2026</option>
-                    </select>
-                </div>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
-                <div class="chart-box"><div style="font-size:12px; font-weight:700;">TOTAL MATCHED</div><h3 id="statTotalStudents" style="font-size:24px; color:#2563eb;">0</h3></div>
-                <div class="chart-box"><div style="font-size:12px; font-weight:700;">PASSED</div><h3 id="statPassedStudents" style="font-size:24px; color:#10b981;">0</h3></div>
-                <div class="chart-box"><div style="font-size:12px; font-weight:700;">FAILED</div><h3 id="statFailedStudents" style="font-size:24px; color:#ef4444;">0</h3></div>
-                <div class="chart-box"><div style="font-size:12px; font-weight:700;">PASS %</div><h3 id="statPassPercentage" style="font-size:24px; color:#8b5cf6;">0%</h3></div>
-            </div>
-            <div class="chart-grid">
-                <div class="chart-box"><h3>Grade Distribution</h3><canvas id="gradePieChart"></canvas></div>
-                <div class="chart-box"><h3>Career Status</h3><canvas id="careerPieChart"></canvas></div>
-            </div>
-        </section>
-
-        <!-- 6. STUDENT MASTER DIRECTORY -->
+        <!-- 3. DIRECTORY -->
         <section id="directory" class="section">
             <h2>Student Master Directory</h2>
-            
             <div class="search-bar-container">
                 <input type="text" id="directorySearchInput" placeholder="🔍 Search by Registration No, Name...">
                 <button onclick="applyDirectoryFilters()" class="btn-green">Search</button>
                 <button onclick="clearDirectorySearch()" class="btn-gray">Clear</button>
             </div>
-            
             <div class="toolbar">
-                <div class="toolbar-group">
-                    <label><b>Course:</b></label>
-                    <select id="filterCourse" onchange="applyDirectoryFilters()" style="margin:0;">
-                        <option value="ALL">All Courses</option>
-                        <option value="B.A. (Honours)">B.A. (Honours)</option>
-                        <option value="B.A. (MDC)">B.A. (MDC)</option>
-                        <option value="B.Sc. (Honours)">B.Sc. (Honours)</option>
-                        <option value="B.Sc. (MDC)">B.Sc. (MDC)</option>
-                        <option value="B.Com. (Honours)">B.Com. (Honours)</option>
-                        <option value="B.Com. (MDC)">B.Com. (MDC)</option>
-                    </select>
-                </div>
-                
-                <div class="toolbar-group">
-                    <label><b>Search Specific Sem:</b></label>
-                    <select id="filterSemester" onchange="applyDirectoryFilters()" style="margin:0;">
-                        <option value="ALL">All Semesters</option>
-                        <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
-                        <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
-                    </select>
-                </div>
-
-                <div class="toolbar-group">
-                    <label><b>Sem Exam Year:</b></label>
-                    <input type="text" id="filterSemYear" placeholder="e.g. 2024" oninput="applyDirectoryFilters()" style="margin:0; width:100px;">
-                </div>
-
-                <div style="display:flex; gap:10px;">
-                    <button onclick="downloadExcel()" class="btn-green">📥 Export Excel</button>
-                    <button id="clearAllBtn" onclick="clearAllData()" class="btn-red">🗑️ Clear All</button>
-                </div>
+                <div class="toolbar-group"><label>Course:</label><select id="filterCourse" onchange="applyDirectoryFilters()"><option value="ALL">All Courses</option><option value="B.Com. (Honours)">B.Com. (Honours)</option></select></div>
+                <div class="toolbar-group"><label>Specific Sem:</label><select id="filterSemester" onchange="applyDirectoryFilters()"><option value="ALL">All Semesters</option><option value="I">Semester I</option><option value="VI">Semester VI</option></select></div>
+                <div class="toolbar-group"><label>Exam Year:</label><input type="text" id="filterSemYear" oninput="applyDirectoryFilters()"></div>
+                <div style="display:flex; gap:10px;"><button onclick="clearAllData()" class="btn-red" id="clearAllBtn">🗑️ Clear All</button></div>
             </div>
             <div id="directory-container"><i>Loading directory...</i></div>
         </section>
 
-        <!-- 7. PDF REPOSITORY -->
+        <!-- 4. REPOSITORY -->
         <section id="repository" class="section">
             <h2>📂 PDF Marksheet Document Repository</h2>
-            
             <div class="search-bar-container">
                 <input type="text" id="repoSearchInput" placeholder="🔍 Search by Registration No...">
                 <button onclick="applyRepoFilters()" class="btn-green">Search</button>
                 <button onclick="clearRepoSearch()" class="btn-gray">Clear</button>
             </div>
-            
-            <div id="repository-container"><i>Loading Repository...</i></div>
+            <div id="repository-container"><i>Loading...</i></div>
         </section>
 
     </main>
 
     <script>
         let allStudentsList = [];
-        let filteredStudentsList = [];
         let statusInterval = null;
         let isEditMode = false;
         let currentLoadedRegNo = "";
         let currentUserRole = "user";
-        let gChart = null; let cChart = null;
 
-        // AUTH & BOOTSTRAP
         window.onload = async function() {
             try {
                 const res = await fetch('/api/auth/me');
                 if (res.ok) {
                     const data = await res.json();
                     currentUserRole = data.role;
-                    document.getElementById("userBadge").innerText = `User: ${data.username} (${data.role.toUpperCase()})`;
+                    document.getElementById("userBadge").innerText = `User: ${data.username}`;
                     if (currentUserRole !== "admin") {
                         document.getElementById("clearAllBtn").style.display = "none";
                         document.getElementById("tab-upload").style.display = "none";
@@ -392,23 +209,18 @@
         };
 
         function logout() { fetch('/api/auth/me', { headers: { 'Authorization': 'Basic ' + btoa('logout:logout') } }).finally(() => window.location.reload()); }
-        
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
             document.querySelectorAll('.nav-tab').forEach(btn => btn.classList.remove('active'));
             document.getElementById(tabId).classList.add('active');
             if (evt) evt.currentTarget.classList.add('active');
         }
-
         function updateFileNameDisplay() {
             const input = document.getElementById('pdfFile');
             if (input.files.length > 0) document.getElementById('fileSelectedName').innerText = `Selected: ${input.files[0].name}`;
         }
 
-        function setElementText(id, textVal) { const el = document.getElementById(id); if (el) el.innerText = (textVal !== undefined && textVal !== null) ? textVal : "-"; }
-        function setElementValue(id, val) { const el = document.getElementById(id); if (el) el.value = (val !== undefined && val !== null) ? val : ""; }
-
-        // --- UPLOAD, PAUSE, RESUME LOGIC ---
+        // --- UPLOAD ---
         async function uploadPDF() {
             const file = document.getElementById("pdfFile").files[0];
             if (!file) return alert("Select a PDF first.");
@@ -418,18 +230,8 @@
             const res = await fetch(`/api/admin/upload-marksheet`, { method: "POST", body: formData });
             if (res.ok) { if(statusInterval) clearInterval(statusInterval); statusInterval = setInterval(pollUploadStatus, 2000); }
         }
-
-        async function pauseUpload() {
-            await fetch('/api/admin/pause-upload', { method: "POST" });
-            document.getElementById("pauseBtn").innerText = "Pausing soon...";
-        }
-
-        async function resumeUpload() {
-            await fetch('/api/admin/resume-upload', { method: "POST" });
-            document.getElementById("resumeBtn").style.display = "none";
-            if(statusInterval) clearInterval(statusInterval);
-            statusInterval = setInterval(pollUploadStatus, 2000);
-        }
+        async function pauseUpload() { await fetch('/api/admin/pause-upload', { method: "POST" }); document.getElementById("pauseBtn").innerText = "Pausing..."; }
+        async function resumeUpload() { await fetch('/api/admin/resume-upload', { method: "POST" }); document.getElementById("resumeBtn").style.display = "none"; if(statusInterval) clearInterval(statusInterval); statusInterval = setInterval(pollUploadStatus, 2000); }
 
         async function pollUploadStatus() {
             try {
@@ -441,349 +243,161 @@
                 document.getElementById("resumeBtn").style.display = status.is_paused ? "inline-flex" : "none";
                 document.getElementById("uploadBtn").disabled = status.is_processing || status.is_paused;
 
+                let errorHtml = "";
+                if (status.errors && status.errors.length > 0) {
+                    errorHtml = `<div class="error-log">⚠️ Execution Errors:<br>${status.errors.join('<br>')}</div>`;
+                }
+
                 if (status.is_processing) {
-                    document.getElementById("pauseBtn").innerText = "⏸️ Pause Processing";
-                    msg.innerHTML = `<div class="progress-card"><b style="color:#d35400;">⏳ Processing PDF:</b> Page ${status.processed_pages} of ${status.total_pages} (${status.extracted_count} records saved)...<br><br><small style="color:var(--text-muted);">${status.status_message}</small></div>`;
+                    document.getElementById("pauseBtn").innerText = "⏸️ Pause";
+                    msg.innerHTML = `<div class="progress-card"><b style="color:#d35400;">⏳ Processing PDF:</b> Page ${status.processed_pages} of ${status.total_pages} (${status.extracted_count} saved)...<br><small>${status.status_message}</small>${errorHtml}</div>`;
                 } else if (status.is_paused) {
-                    msg.innerHTML = `<div class="progress-card" style="border-color:#f59e0b; color:#b45309;"><b>${status.status_message}</b></div>`;
+                    msg.innerHTML = `<div class="progress-card" style="border-color:#f59e0b; color:#b45309;"><b>${status.status_message}</b>${errorHtml}</div>`;
                     clearInterval(statusInterval);
-                } else if (status.status_message.includes("DONE")) {
-                    msg.innerHTML = `<div class="progress-card" style="border-color:#10b981; background:#d1fae5; color:#047857;"><b>${status.status_message}</b></div>`;
+                } else if (status.status_message.includes("DONE") || status.status_message.includes("Error")) {
+                    msg.innerHTML = `<div class="progress-card" style="border-color:#10b981; background:#d1fae5; color:#047857;"><b>${status.status_message}</b>${errorHtml}</div>`;
                     document.getElementById("uploadBtn").disabled = false;
                     clearInterval(statusInterval);
                 }
             } catch (e) {}
         }
 
-        // --- STUDENT PROFILE LOGIC ---
+        // --- PROFILE ---
         async function fetchStudentProfile() {
             const regNo = document.getElementById("regNoSearch").value.trim();
             if (!regNo) return alert("Enter Registration Number.");
+            const res = await fetch(`/api/student/${regNo}`);
+            if (!res.ok) return alert("Student not found.");
+            const data = await res.json();
+            
+            currentLoadedRegNo = data.student.reg_no;
+            isEditMode = false;
+            
+            const setTxt = (id, val) => { if(document.getElementById(id)) document.getElementById(id).innerText = val || "-"; };
+            setTxt("s-name", data.student.name); setTxt("s-cgpa-banner", data.student.cgpa); setTxt("s-grade-banner", data.student.grade);
+            setTxt("s-reg", data.student.reg_no); setTxt("s-roll", data.student.roll_no); setTxt("s-course", data.student.course);
+            setTxt("s-subject", data.student.subject); setTxt("s-pass-year", data.student.passout_year); setTxt("s-remarks", data.student.remarks);
 
-            try {
-                const res = await fetch(`/api/student/${regNo}`);
-                if (!res.ok) throw new Error("Student not found. Did you upload and extract their marksheet successfully?");
-                const data = await res.json();
-                
-                currentLoadedRegNo = data.student.reg_no;
-                isEditMode = false;
-                
-                setElementText("s-name", data.student.name);
-                setElementText("s-cgpa-banner", data.student.cgpa);
-                setElementText("s-grade-banner", data.student.grade);
-                setElementText("s-reg", data.student.reg_no);
-                setElementText("s-roll", data.student.roll_no);
-                setElementText("s-course", data.student.course);
-                setElementText("s-subject", data.student.subject);
-                setElementText("s-admin-year", data.student.admission_year);
-                setElementText("s-pass-year", data.student.passout_year);
-                setElementText("s-remarks", data.student.remarks);
-
-                renderPaperTable(data.papers || [], false);
-                renderSemesterTable(data.semesters || [], false);
-                document.getElementById("profile-area").style.display = "block";
-                document.getElementById("addPaperRowBtn").style.display = "none";
-            } catch (err) { alert(err.message); }
+            renderPaperTable(data.papers || [], false);
+            renderSemesterTable(data.semesters || [], false);
+            document.getElementById("profile-area").style.display = "block";
+            document.getElementById("addPaperRowBtn").style.display = "none";
         }
 
         function renderPaperTable(papers, editable) {
             const tbody = document.getElementById("paper-table-body");
             tbody.innerHTML = "";
-            if(papers.length === 0 && !editable) {
-                tbody.innerHTML = "<tr><td colspan='8'>No detailed subject records found.</td></tr>";
-                return;
-            }
+            if(papers.length === 0 && !editable) return tbody.innerHTML = "<tr><td colspan='8'>No records.</td></tr>";
             papers.forEach(p => {
                 if (editable) {
                     tbody.innerHTML += `<tr>
-                        <td><input type="text" class="edit-p-code" value="${p.course_code||''}"></td>
-                        <td><input type="text" class="edit-p-name" value="${p.course_name||''}"></td>
-                        <td><input type="text" class="edit-p-comp" value="${p.component||''}"></td>
-                        <td><input type="text" class="edit-p-fm" value="${p.full_marks||''}"></td>
-                        <td><input type="text" class="edit-p-mo" value="${p.marks_obtained||''}"></td>
-                        <td><input type="text" class="edit-p-cred" value="${p.credit||''}"></td>
-                        <td><input type="text" class="edit-p-grade" value="${p.grade||''}"></td>
-                        <td><input type="text" class="edit-p-stat" value="${p.status||''}"></td>
+                        <td><input type="text" class="edit-p-code" value="${p.course_code}"></td>
+                        <td><input type="text" class="edit-p-name" value="${p.course_name}"></td>
+                        <td><input type="text" class="edit-p-comp" value="${p.component}"></td>
+                        <td><input type="text" class="edit-p-fm" value="${p.full_marks}"></td>
+                        <td><input type="text" class="edit-p-mo" value="${p.marks_obtained}"></td>
+                        <td><input type="text" class="edit-p-cred" value="${p.credit}"></td>
+                        <td><input type="text" class="edit-p-grade" value="${p.grade}"></td>
+                        <td><input type="text" class="edit-p-stat" value="${p.status}"></td>
                     </tr>`;
                 } else {
-                    tbody.innerHTML += `<tr>
-                        <td><b>${p.course_code||'-'}</b></td><td>${p.course_name||'-'}</td><td>${p.component||'-'}</td>
-                        <td>${p.full_marks||'-'}</td><td>${p.marks_obtained||'-'}</td><td>${p.credit||'-'}</td>
-                        <td><b style="color:var(--primary);">${p.grade||'-'}</b></td><td>${p.status||'-'}</td>
-                    </tr>`;
+                    tbody.innerHTML += `<tr><td><b>${p.course_code}</b></td><td>${p.course_name}</td><td>${p.component}</td><td>${p.full_marks}</td><td>${p.marks_obtained}</td><td>${p.credit}</td><td><b>${p.grade}</b></td><td>${p.status}</td></tr>`;
                 }
             });
         }
-
         function addPaperRow() {
-            const tbody = document.getElementById("paper-table-body");
-            tbody.innerHTML += `<tr>
-                <td><input type="text" class="edit-p-code" placeholder="Code"></td>
-                <td><input type="text" class="edit-p-name" placeholder="Name"></td>
-                <td><input type="text" class="edit-p-comp" placeholder="Component"></td>
-                <td><input type="text" class="edit-p-fm" placeholder="Full Marks"></td>
-                <td><input type="text" class="edit-p-mo" placeholder="Obtained"></td>
-                <td><input type="text" class="edit-p-cred" placeholder="Credit"></td>
-                <td><input type="text" class="edit-p-grade" placeholder="Grade"></td>
-                <td><input type="text" class="edit-p-stat" placeholder="Status"></td>
+            document.getElementById("paper-table-body").innerHTML += `<tr>
+                <td><input type="text" class="edit-p-code"></td><td><input type="text" class="edit-p-name"></td><td><input type="text" class="edit-p-comp"></td>
+                <td><input type="text" class="edit-p-fm"></td><td><input type="text" class="edit-p-mo"></td><td><input type="text" class="edit-p-cred"></td>
+                <td><input type="text" class="edit-p-grade"></td><td><input type="text" class="edit-p-stat"></td>
             </tr>`;
         }
 
         function renderSemesterTable(semesters, editable) {
-            const tbody = document.getElementById("sem-table-body");
-            tbody.innerHTML = "";
-            const semLabels = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
-
-            semLabels.forEach((sem) => {
-                let s = semesters.find(item => item.semester === sem) || { semester: sem, year: "", full_marks: "", marks: "", credit: "", sgpa: "" };
+            const tbody = document.getElementById("sem-table-body"); tbody.innerHTML = "";
+            ["I","II","III","IV","V","VI","VII","VIII"].forEach(sem => {
+                let s = semesters.find(i => i.semester === sem) || { semester: sem, year: "", full_marks: "", marks_obtained: "", credit: "", sgpa: "" };
                 if (editable) {
                     tbody.innerHTML += `<tr>
-                        <td><b>Semester ${sem}</b><input type="hidden" class="edit-sem-num" value="${sem}"></td>
-                        <td><input type="text" class="edit-sem-year" value="${s.year || ''}"></td>
-                        <td><input type="text" class="edit-sem-fm" value="${s.full_marks || ''}"></td>
-                        <td><input type="text" class="edit-sem-marks" value="${s.marks || ''}"></td>
-                        <td><input type="text" class="edit-sem-cred" value="${s.credit || ''}"></td>
-                        <td><input type="text" class="edit-sem-sgpa" value="${s.sgpa || ''}"></td>
+                        <td><b>${sem}</b><input type="hidden" class="edit-sem-num" value="${sem}"></td>
+                        <td><input type="text" class="edit-sem-year" value="${s.year}"></td>
+                        <td><input type="text" class="edit-sem-fm" value="${s.full_marks}"></td>
+                        <td><input type="text" class="edit-sem-mo" value="${s.marks_obtained}"></td>
+                        <td><input type="text" class="edit-sem-cred" value="${s.credit}"></td>
+                        <td><input type="text" class="edit-sem-sgpa" value="${s.sgpa}"></td>
                     </tr>`;
                 } else {
-                    tbody.innerHTML += `<tr>
-                        <td><b>Semester ${sem}</b></td><td>${s.year || "-"}</td><td>${s.full_marks || "-"}</td>
-                        <td>${s.marks || "-"}</td><td>${s.credit || "-"}</td><td><b style="color:var(--primary);">${s.sgpa || "-"}</b></td>
-                    </tr>`;
+                    tbody.innerHTML += `<tr><td><b>${sem}</b></td><td>${s.year}</td><td>${s.full_marks}</td><td>${s.marks_obtained}</td><td>${s.credit}</td><td><b>${s.sgpa}</b></td></tr>`;
                 }
             });
         }
 
         function toggleEditMode() {
             isEditMode = !isEditMode;
-            const dInline = isEditMode ? "inline-block" : "none";
-            const dNone = isEditMode ? "none" : "inline-block";
-
             ["name", "cgpa", "grade", "roll", "course", "subject", "remarks", "pass-year"].forEach(f => {
-                if(isEditMode) document.getElementById("edit-"+f).value = document.getElementById("s-"+(f === 'cgpa' || f === 'grade' ? f+'-banner' : f)).innerText;
-                document.getElementById("edit-"+f).style.display = dInline;
-                document.getElementById("s-"+(f === 'cgpa' || f === 'grade' ? f+'-banner' : f)).style.display = dNone;
+                if(isEditMode) document.getElementById("edit-"+f).value = document.getElementById("s-"+(f==='cgpa'||f==='grade'?f+'-banner':f)).innerText;
+                document.getElementById("edit-"+f).style.display = isEditMode ? "inline-block" : "none";
+                document.getElementById("s-"+(f==='cgpa'||f==='grade'?f+'-banner':f)).style.display = isEditMode ? "none" : "inline-block";
             });
-
             document.getElementById("save-edit-btn-container").style.display = isEditMode ? "block" : "none";
             document.getElementById("addPaperRowBtn").style.display = isEditMode ? "inline-block" : "none";
-            document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks";
-            
-            fetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => {
-                renderPaperTable(data.papers || [], isEditMode);
-                renderSemesterTable(data.semesters || [], isEditMode);
-            });
+            document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel" : "✏️ Edit";
+            fetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { renderPaperTable(data.papers||[], isEditMode); renderSemesterTable(data.semesters||[], isEditMode); });
         }
 
         async function saveFullProfileEdit() {
-            const updatedSemesters = [];
+            const updatedSemesters = [], updatedPapers = [];
             document.querySelectorAll("#sem-table-body tr").forEach(row => {
-                const sem = row.querySelector(".edit-sem-num").value;
-                const yr = row.querySelector(".edit-sem-year").value.trim();
-                const fm = row.querySelector(".edit-sem-fm").value.trim();
-                const mo = row.querySelector(".edit-sem-marks").value.trim();
-                const cred = row.querySelector(".edit-sem-cred").value.trim();
-                const sgpa = row.querySelector(".edit-sem-sgpa").value.trim();
-                if (yr || sgpa || mo) updatedSemesters.push({ semester: sem, year: yr, full_marks: fm||"400", marks: mo, credit: cred||"20", sgpa: sgpa });
+                const y = row.querySelector(".edit-sem-year").value.trim(), mo = row.querySelector(".edit-sem-mo").value.trim(), s = row.querySelector(".edit-sem-sgpa").value.trim();
+                if (y || mo || s) updatedSemesters.push({ semester: row.querySelector(".edit-sem-num").value, year: y, full_marks: row.querySelector(".edit-sem-fm").value.trim()||"400", marks_obtained: mo, credit: row.querySelector(".edit-sem-cred").value.trim()||"20", sgpa: s });
             });
-
-            const updatedPapers = [];
             document.querySelectorAll("#paper-table-body tr").forEach(row => {
                 if(row.querySelector(".edit-p-code")) {
-                    const cd = row.querySelector(".edit-p-code").value.trim();
-                    const nm = row.querySelector(".edit-p-name").value.trim();
-                    if(cd || nm) {
-                        updatedPapers.push({
-                            course_code: cd, course_name: nm,
-                            component: row.querySelector(".edit-p-comp").value.trim(),
-                            full_marks: row.querySelector(".edit-p-fm").value.trim(),
-                            marks_obtained: row.querySelector(".edit-p-mo").value.trim(),
-                            credit: row.querySelector(".edit-p-cred").value.trim(),
-                            grade: row.querySelector(".edit-p-grade").value.trim(),
-                            status: row.querySelector(".edit-p-stat").value.trim()
-                        });
-                    }
+                    const c = row.querySelector(".edit-p-code").value.trim(), n = row.querySelector(".edit-p-name").value.trim();
+                    if(c || n) updatedPapers.push({ course_code: c, course_name: n, component: row.querySelector(".edit-p-comp").value.trim(), full_marks: row.querySelector(".edit-p-fm").value.trim(), marks_obtained: row.querySelector(".edit-p-mo").value.trim(), credit: row.querySelector(".edit-p-cred").value.trim(), grade: row.querySelector(".edit-p-grade").value.trim(), status: row.querySelector(".edit-p-stat").value.trim() });
                 }
             });
-
             const payload = {
-                name: document.getElementById("edit-name").value, roll_no: document.getElementById("edit-roll").value,
-                course: document.getElementById("edit-course").value, subject: document.getElementById("edit-subject").value,
-                passout_year: document.getElementById("edit-pass-year").value, cgpa: document.getElementById("edit-cgpa").value,
-                grade: document.getElementById("edit-grade").value, remarks: document.getElementById("edit-remarks").value,
+                name: document.getElementById("edit-name").value, roll_no: document.getElementById("edit-roll").value, course: document.getElementById("edit-course").value, subject: document.getElementById("edit-subject").value,
+                passout_year: document.getElementById("edit-pass-year").value, cgpa: document.getElementById("edit-cgpa").value, grade: document.getElementById("edit-grade").value, remarks: document.getElementById("edit-remarks").value,
                 semesters: updatedSemesters, papers: updatedPapers
             };
-
             await fetch(`/api/admin/update-profile-full/${currentLoadedRegNo}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-            toggleEditMode();
-            fetchStudentProfile();
+            toggleEditMode(); fetchStudentProfile();
         }
 
-        // --- 3. DOC ISSUANCE LOGIC ---
-        async function loadDocStatus() {
-            const regNo = document.getElementById("docRegNo").value.trim();
-            if (!regNo) return alert("Enter Registration No.");
-            const res = await fetch(`/api/student/${regNo}`);
-            if(!res.ok) return alert("Student not found.");
-            const data = await res.json();
-            currentLoadedRegNo = data.student.reg_no;
-            setElementText("doc-student-title", `${data.student.name} (${data.student.reg_no})`);
-            document.getElementById("marksheetCb").checked = data.student.marksheet_received;
-            document.getElementById("certCb").checked = data.student.certificate_received;
-            setElementValue("marksheetDate", data.student.marksheet_issue_date);
-            setElementValue("certDate", data.student.certificate_issue_date);
-            document.getElementById("doc-form-area").style.display = "block";
-            setElementText("doc-msg", "");
-        }
-        async function saveDocStatusDetailed() {
-            const formData = new FormData();
-            formData.append("marksheet_received", document.getElementById("marksheetCb").checked);
-            formData.append("certificate_received", document.getElementById("certCb").checked);
-            formData.append("marksheet_issue_date", document.getElementById("marksheetDate").value);
-            formData.append("certificate_issue_date", document.getElementById("certDate").value);
-            formData.append("issued_by", document.getElementById("issuedBySelect").value);
-            const res = await fetch(`/api/admin/update-issuance-detailed/${currentLoadedRegNo}`, { method: "POST", body: formData });
-            if(res.ok) setElementText("doc-msg", "✅ Saved successfully!");
-        }
-
-        // --- 4. CAREER LOGIC ---
-        async function loadCareerStatus() {
-            const regNo = document.getElementById("careerRegNo").value.trim();
-            if (!regNo) return alert("Enter Registration No.");
-            const res = await fetch(`/api/student/${regNo}`);
-            if(!res.ok) return alert("Student not found.");
-            const data = await res.json();
-            currentLoadedRegNo = data.student.reg_no;
-            setElementText("career-student-title", `${data.student.name} (${data.student.reg_no})`);
-            setElementValue("s-course-edit", data.student.course);
-            setElementValue("postGradStatus", data.student.status);
-            setElementValue("postGradDetails", data.student.details);
-            const proofCont = document.getElementById("current-proof-link");
-            if (data.student.proof) proofCont.innerHTML = `<b>Proof:</b> <a href="/${data.student.proof}" target="_blank">📄 View File</a>`;
-            else proofCont.innerText = "No proof file uploaded.";
-            document.getElementById("career-form-area").style.display = "block";
-            setElementText("career-msg", "");
-        }
-        async function saveCareerStatus() {
-            const origData = await fetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json());
-            const formData = new FormData();
-            formData.append("course", document.getElementById("s-course-edit").value);
-            formData.append("marksheet_received", origData.student.marksheet_received);
-            formData.append("certificate_received", origData.student.certificate_received);
-            formData.append("status", document.getElementById("postGradStatus").value);
-            formData.append("details", document.getElementById("postGradDetails").value);
-            const file = document.getElementById("proofFile").files[0];
-            if (file) formData.append("proof_file", file);
-            const res = await fetch(`/api/admin/update-status/${currentLoadedRegNo}`, { method: "POST", body: formData });
-            if(res.ok) { setElementText("career-msg", "✅ Career updated!"); loadCareerStatus(); }
-        }
-
-        // --- DIRECTORY LOGIC ---
-        async function fetchDirectory() {
-            document.getElementById("directory-container").innerHTML = "<i>Loading...</i>";
-            const res = await fetch("/api/admin/all-students");
-            allStudentsList = await res.json();
-            applyDirectoryFilters();
-        }
-        function clearDirectorySearch() {
-            document.getElementById("directorySearchInput").value = "";
-            document.getElementById("filterCourse").value = "ALL";
-            document.getElementById("filterSemester").value = "ALL";
-            document.getElementById("filterSemYear").value = "";
-            applyDirectoryFilters();
-        }
+        // --- DIRECTORY ---
+        async function fetchDirectory() { document.getElementById("directory-container").innerHTML = "<i>Loading...</i>"; allStudentsList = await fetch("/api/admin/all-students").then(r => r.json()); applyDirectoryFilters(); }
         function applyDirectoryFilters() {
-            const sVal = document.getElementById("directorySearchInput").value.trim().toLowerCase();
-            const sCourse = document.getElementById("filterCourse").value;
-            const sSem = document.getElementById("filterSemester").value;
-            const sYear = document.getElementById("filterSemYear").value.trim();
-
-            filteredStudentsList = allStudentsList.filter(s => {
-                const matchSearch = (sVal === "") || (s.registration_no && s.registration_no.toLowerCase().includes(sVal)) || (s.name && s.name.toLowerCase().includes(sVal));
-                const matchCourse = (sCourse === "ALL") || (s.course && s.course.includes(sCourse));
-                let matchSemInfo = true;
-                if (sSem !== "ALL" || sYear !== "") {
-                    matchSemInfo = false;
-                    s.semesters.forEach(semRec => {
-                        const m1 = (sSem === "ALL" || semRec.semester === sSem);
-                        const m2 = (sYear === "" || semRec.year === sYear);
-                        if (m1 && m2) matchSemInfo = true;
-                    });
-                }
-                return matchSearch && matchCourse && matchSemInfo;
+            const v = document.getElementById("directorySearchInput").value.trim().toLowerCase(), c = document.getElementById("filterCourse").value, s = document.getElementById("filterSemester").value, y = document.getElementById("filterSemYear").value.trim();
+            const filtered = allStudentsList.filter(st => {
+                const mSearch = (v==="") || (st.registration_no&&st.registration_no.toLowerCase().includes(v)) || (st.name&&st.name.toLowerCase().includes(v));
+                const mCourse = (c==="ALL") || (st.course&&st.course.includes(c));
+                let mSem = true; if (s!=="ALL" || y!=="") { mSem=false; st.semesters.forEach(r => { if((s==="ALL"||r.semester===s) && (y===""||r.year===y)) mSem=true; }); }
+                return mSearch && mCourse && mSem;
             });
-            renderDirectoryTable();
-        }
-        function renderDirectoryTable() {
             const container = document.getElementById("directory-container");
-            if (filteredStudentsList.length === 0) return container.innerHTML = "<p style='text-align:center;'>No matching records.</p>";
-            let html = `<table><thead><tr><th>Reg No</th><th>Name</th><th>Course</th><th>Passout Year</th><th>CGPA / Grade</th><th>Career</th>${currentUserRole === 'admin' ? '<th>Action</th>' : ''}</tr></thead><tbody>`;
-            filteredStudentsList.forEach(s => {
-                html += `<tr><td><b>${s.registration_no}</b></td><td>${s.name}</td><td>${s.course}</td><td>${s.passout_year}</td><td><b>${s.overall_cgpa}</b> (${s.overall_grade})</td><td>${s.post_grad_status||'-'}</td>${currentUserRole === 'admin' ? `<td><button onclick="deleteSingleStudent('${s.registration_no}')" class="btn-sm-red">Delete</button></td>` : ''}</tr>`;
-            });
+            if (filtered.length === 0) return container.innerHTML = "<p>No matching records.</p>";
+            let html = `<table><thead><tr><th>Reg No</th><th>Name</th><th>Course</th><th>Passout Year</th><th>CGPA</th>${currentUserRole==='admin'?'<th>Action</th>':''}</tr></thead><tbody>`;
+            filtered.forEach(st => { html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.course}</td><td>${st.passout_year}</td><td><b>${st.overall_cgpa}</b></td>${currentUserRole==='admin'?`<td><button onclick="deleteSingleStudent('${st.registration_no}')" class="btn-sm-red">Del</button></td>`:''}</tr>`; });
             container.innerHTML = html + `</tbody></table>`;
         }
+        function clearDirectorySearch() { document.getElementById("directorySearchInput").value = ""; document.getElementById("filterCourse").value = "ALL"; document.getElementById("filterSemester").value = "ALL"; document.getElementById("filterSemYear").value = ""; applyDirectoryFilters(); }
+        async function deleteSingleStudent(regNo) { if(confirm(`Delete ${regNo}?`)) { await fetch(`/api/admin/student/${regNo}`, { method: "DELETE" }); fetchDirectory(); } }
+        async function clearAllData() { if(confirm("DELETE ALL records?")) { await fetch(`/api/admin/clear-all-students`, { method: "POST" }); fetchDirectory(); } }
 
-        function downloadExcel() {
-            if (filteredStudentsList.length === 0) return alert("No records to export.");
-            let csv = "Registration No,Name,Roll No,Course,Subject,Admission Year,Passout Year,CGPA,Grade,Remarks\n";
-            filteredStudentsList.forEach(s => { csv += `"${s.registration_no}","${s.name}","${s.roll_no}","${s.course}","${s.subject}","${s.admission_year}","${s.passout_year}","${s.overall_cgpa}","${s.overall_grade}","${s.remarks}"\n`; });
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url;
-            a.download = `Directory.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        }
-        async function deleteSingleStudent(regNo) {
-            if (!confirm(`Delete ${regNo}?`)) return;
-            await fetch(`/api/admin/student/${regNo}`, { method: "DELETE" }); fetchDirectory();
-        }
-        async function clearAllData() {
-            if (!confirm("⚠️ DELETE ALL records?")) return;
-            await fetch(`/api/admin/clear-all-students`, { method: "POST" }); fetchDirectory();
-        }
-
-        // --- PDF REPOSITORY LOGIC ---
+        // --- REPOSITORY ---
         function applyRepoFilters() {
-            const sVal = document.getElementById("repoSearchInput").value.trim().toLowerCase();
-            const repoList = allStudentsList.filter(s => (sVal === "") || (s.registration_no && s.registration_no.toLowerCase().includes(sVal)));
+            const v = document.getElementById("repoSearchInput").value.trim().toLowerCase();
+            const list = allStudentsList.filter(st => (v==="") || (st.registration_no&&st.registration_no.toLowerCase().includes(v)));
             const container = document.getElementById("repository-container");
-            if (repoList.length === 0) return container.innerHTML = "<p style='text-align:center;'>No matches.</p>";
-            let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Action</th></tr></thead><tbody>`;
-            repoList.forEach(s => {
-                let pdf = s.pdf_document_path ? `<a href="/${s.pdf_document_path}" target="_blank"><button class="btn-green">📄 View PDF</button></a>` : "Not Stored";
-                html += `<tr><td><b>${s.registration_no}</b></td><td>${s.name}</td><td>${pdf}</td></tr>`;
-            });
+            if (list.length === 0) return container.innerHTML = "<p>No matches.</p>";
+            let html = `<table><thead><tr><th>Reg No</th><th>Name</th><th>Action</th></tr></thead><tbody>`;
+            list.forEach(st => { html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.pdf_document_path ? `<a href="/${st.pdf_document_path}" target="_blank"><button class="btn-green">📄 PDF</button></a>` : "N/A"}</td></tr>`; });
             container.innerHTML = html + `</tbody></table>`;
         }
         function clearRepoSearch() { document.getElementById("repoSearchInput").value = ""; applyRepoFilters(); }
         async function fetchPdfRepository() { await fetchDirectory(); applyRepoFilters(); }
-
-        // --- ANALYTICS LOGIC ---
-        async function renderCharts() {
-            const res = await fetch("/api/admin/all-students"); const students = await res.json();
-            const y = document.getElementById("statsYear").value;
-            const filtered = students.filter(s => (y === "ALL") || (s.passout_year === y));
-            
-            let passed = 0; let failed = 0; let gCounts = {}; let cCounts = {};
-            filtered.forEach(s => {
-                if (s.overall_grade.includes("Fail") || s.overall_grade.includes("Not Cleared")) failed++; else passed++;
-                gCounts[s.overall_grade] = (gCounts[s.overall_grade] || 0) + 1;
-                cCounts[s.post_grad_status || "Unknown"] = (cCounts[s.post_grad_status || "Unknown"] || 0) + 1;
-            });
-
-            document.getElementById("statTotalStudents").innerText = filtered.length;
-            document.getElementById("statPassedStudents").innerText = passed;
-            document.getElementById("statFailedStudents").innerText = failed;
-            document.getElementById("statPassPercentage").innerText = filtered.length > 0 ? ((passed / filtered.length) * 100).toFixed(1) + "%" : "0%";
-
-            if (gChart) gChart.destroy();
-            gChart = new Chart(document.getElementById('gradePieChart').getContext('2d'), {
-                type: 'doughnut', data: { labels: Object.keys(gCounts), datasets: [{ data: Object.values(gCounts), backgroundColor: ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#64748b'] }] }
-            });
-            if (cChart) cChart.destroy();
-            cChart = new Chart(document.getElementById('careerPieChart').getContext('2d'), {
-                type: 'doughnut', data: { labels: Object.keys(cCounts), datasets: [{ data: Object.values(cCounts), backgroundColor: ['#0d9488', '#1e293b', '#2563eb', '#ea580c', '#a855f7', '#94a3b8'] }] }
-            });
-        }
     </script>
 </body>
 </html>
