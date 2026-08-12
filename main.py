@@ -8,7 +8,13 @@ import time
 import gc
 import io
 from PIL import Image
+import os
+from dotenv import load_dotenv
+load_dotenv()  # This forces python to read your new .env file!
 
+import re
+import shutil
+import secrets
 # Safe Imports
 try:
     import fitz  # PyMuPDF
