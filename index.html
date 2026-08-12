@@ -40,11 +40,12 @@
         label { font-size: 13px; font-weight: 700; color: #334155; margin-top: 15px; display: block; }
         input[type="text"], input[type="date"], input[type="file"], select { padding: 12px 14px; margin: 6px 0 12px 0; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; background: #ffffff; }
         
-        button { padding: 12px 20px; margin: 8px 0; width: 100%; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.2s; background-color: var(--primary); color: white; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+        button { padding: 12px 20px; margin: 8px 0; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.2s; background-color: var(--primary); color: white; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
         button:hover { background-color: var(--primary-hover); }
         .btn-green { background-color: var(--success) !important; width: auto !important; }
         .btn-orange { background-color: var(--warning) !important; width: auto !important; color: #000 !important; }
         .btn-red { background-color: var(--danger) !important; width: auto !important; }
+        .btn-gray { background-color: var(--text-muted) !important; width: auto !important; }
         .btn-sm-red { background-color: var(--danger) !important; padding: 6px 12px !important; font-size: 12px !important; width: auto !important; }
 
         .dropzone { border: 2px dashed #94a3b8; border-radius: 12px; padding: 40px; text-align: center; background: #f1f5f9; cursor: pointer; margin: 15px 0; }
@@ -72,6 +73,10 @@
         .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-top: 25px; }
         .chart-box { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 25px; text-align: center; }
         .progress-card { background: #eff6ff; border: 2px solid #bfdbfe; padding: 20px; border-radius: 10px; margin-top: 20px; font-size: 15px; color: #1e40af; }
+        
+        /* Flexbox overrides for search bars so buttons don't crush the inputs */
+        .search-bar-container { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; }
+        .search-bar-container input { flex: 1; min-width: 250px; margin: 0; }
     </style>
 </head>
 <body>
@@ -98,7 +103,7 @@
 
         <div style="display: flex; align-items: center;">
             <div class="user-badge" id="userBadge">Checking login...</div>
-            <button onclick="logout()" style="background: #ef4444; color: white; border: none; padding: 6px 14px; border-radius: 20px; cursor: pointer; font-size: 12px; font-weight: bold; margin-left: 10px; transition: 0.2s;">Logout</button>
+            <button onclick="logout()" class="btn-red" style="padding: 6px 14px !important; font-size: 12px !important; border-radius: 20px; margin-left: 10px;">Logout</button>
         </div>
     </header>
 
@@ -128,9 +133,9 @@
             <input type="file" id="pdfFile" accept="application/pdf" style="display:none;" onchange="updateFileNameDisplay()">
 
             <div style="display: flex; gap: 10px;">
-                <button id="uploadBtn" onclick="uploadPDF()">🚀 Start Upload & Background Extraction</button>
-                <button id="pauseBtn" onclick="pauseUpload()" class="btn-orange" style="display:none;">⏸️ Pause Processing</button>
-                <button id="resumeBtn" onclick="resumeUpload()" class="btn-green" style="display:none;">▶️ Resume Processing</button>
+                <button id="uploadBtn" class="btn-green" style="width: auto !important; padding: 12px 25px !important;" onclick="uploadPDF()">🚀 Start Upload & Background Extraction</button>
+                <button id="pauseBtn" onclick="pauseUpload()" class="btn-orange" style="display:none; padding: 12px 25px !important;">⏸️ Pause Processing</button>
+                <button id="resumeBtn" onclick="resumeUpload()" class="btn-green" style="display:none; padding: 12px 25px !important;">▶️ Resume Processing</button>
             </div>
             
             <div id="upload-msg"></div>
@@ -139,15 +144,14 @@
         <!-- 2. STUDENT PROFILE & EDIT -->
         <section id="student-search" class="section">
             <h2>Search Student Academic Profile</h2>
-            <p class="section-desc">Search by registration number to view or manually correct student academic records (Subjects & Semesters).</p>
+            <p class="section-desc">Search by registration number to view or manually correct student academic records (Detailed Subjects & Semesters).</p>
             
-            <div style="display: flex; gap: 10px;">
-                <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 424-1211-0240-19)" style="margin:0;">
-                <button onclick="fetchStudentProfile()" style="width: 220px;">🔍 Search Profile</button>
+            <div class="search-bar-container">
+                <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 424-1211-0240-19)">
+                <button onclick="fetchStudentProfile()" class="btn-green">🔍 Search Profile</button>
             </div>
             
             <div id="profile-area" style="display: none; margin-top: 25px;">
-                
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h3>Student Overview</h3>
                     <button id="toggleEditBtn" onclick="toggleEditMode()" class="btn-orange">✏️ Edit Profile & Marks</button>
@@ -180,8 +184,9 @@
                     <div><b>Remarks Statement:</b> <span id="s-remarks" style="color:var(--success); font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
                 </div>
 
+                <!-- FULL DIGITIZED SUBJECT MARK TABLE -->
                 <div id="paper-table-container" style="margin-top: 30px;">
-                    <h3>Detailed Subject/Paper Marks Breakdown</h3>
+                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Detailed Subject/Paper Marks Breakdown</h3>
                     <table>
                         <thead><tr>
                             <th>Course Code</th><th>Course Name</th><th>Component</th>
@@ -190,11 +195,12 @@
                         </tr></thead>
                         <tbody id="paper-table-body"></tbody>
                     </table>
-                    <button type="button" id="addPaperRowBtn" onclick="addPaperRow()" class="btn-orange" style="display:none; margin-top: 10px; width:150px;">+ Add Subject Row</button>
+                    <button type="button" id="addPaperRowBtn" onclick="addPaperRow()" class="btn-orange" style="display:none; margin-top: 10px; width:200px !important;">+ Add Subject Row</button>
                 </div>
 
-                <div id="sem-table-container" style="margin-top: 30px;">
-                    <h3>Semester-wise Performance Summary (I - VIII)</h3>
+                <!-- SEMESTER SUMMARY TABLE -->
+                <div id="sem-table-container" style="margin-top: 40px;">
+                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Semester-wise Performance Summary (I - VIII)</h3>
                     <table>
                         <thead><tr><th>Semester</th><th>Exam Year</th><th>Full Marks</th><th>Marks Obtained</th><th>Semester Credit</th><th>SGPA</th></tr></thead>
                         <tbody id="sem-table-body"></tbody>
@@ -211,10 +217,9 @@
         <!-- 3. DOCUMENT ISSUANCE -->
         <section id="doc-issuance" class="section">
             <h2>Document Issuance Tracker</h2>
-            <p class="section-desc">Manage marksheets and degree certificates issued with exact dates and employee names.</p>
-            <div style="display: flex; gap: 10px;">
-                <input type="text" id="docRegNo" placeholder="Enter Registration Number" style="margin:0;">
-                <button onclick="loadDocStatus()" style="width: 220px;">Load Record</button>
+            <div class="search-bar-container">
+                <input type="text" id="docRegNo" placeholder="Enter Registration Number">
+                <button onclick="loadDocStatus()" class="btn-green">Load Record</button>
             </div>
             <div id="doc-form-area" style="display: none;" class="card">
                 <h3 id="doc-student-title" style="color:var(--primary);"></h3>
@@ -245,14 +250,13 @@
         <!-- 4. CAREER & PLACEMENTS -->
         <section id="career-status" class="section">
             <h2>Career & Post-Graduation Profile</h2>
-            <p class="section-desc">Track employment, higher study enrolments, and uploaded proof documents.</p>
-            <div style="display: flex; gap: 10px;">
-                <input type="text" id="careerRegNo" placeholder="Enter Registration Number" style="margin:0;">
-                <button onclick="loadCareerStatus()" style="width: 220px;">Load Record</button>
+            <div class="search-bar-container">
+                <input type="text" id="careerRegNo" placeholder="Enter Registration Number">
+                <button onclick="loadCareerStatus()" class="btn-green">Load Record</button>
             </div>
             <div id="career-form-area" style="display: none;" class="card">
                 <h3 id="career-student-title" style="color:var(--primary);"></h3>
-                <input type="hidden" id="s-course-edit"> <!-- Hidden so save doesn't crash if omitted -->
+                <input type="hidden" id="s-course-edit"> 
                 <label><b>Current Status:</b></label>
                 <select id="postGradStatus">
                     <option value="Unknown">Unknown</option>
@@ -267,7 +271,7 @@
                 <label><b>Upload Proof Document:</b></label>
                 <input type="file" id="proofFile" accept="image/*,application/pdf">
                 <div id="current-proof-link" style="margin: 8px 0; font-size: 13px;"></div>
-                <button onclick="saveCareerStatus()" style="background-color: var(--accent); margin-top: 15px;">Save Career Profile</button>
+                <button onclick="saveCareerStatus()" class="btn-green" style="margin-top: 15px;">Save Career Profile</button>
                 <div id="career-msg" style="margin-top: 10px; font-weight: bold;"></div>
             </div>
         </section>
@@ -302,10 +306,11 @@
         <!-- 6. STUDENT MASTER DIRECTORY -->
         <section id="directory" class="section">
             <h2>Student Master Directory</h2>
-            <div style="margin-bottom: 15px; display: flex; gap: 10px;">
-                <input type="text" id="directorySearchInput" placeholder="🔍 Search by Registration No, Name..." style="flex: 1; margin: 0;">
+            
+            <div class="search-bar-container">
+                <input type="text" id="directorySearchInput" placeholder="🔍 Search by Registration No, Name...">
                 <button onclick="applyDirectoryFilters()" class="btn-green">Search</button>
-                <button onclick="clearDirectorySearch()" style="background:var(--text-muted);">Clear</button>
+                <button onclick="clearDirectorySearch()" class="btn-gray">Clear</button>
             </div>
             
             <div class="toolbar">
@@ -347,11 +352,13 @@
         <!-- 7. PDF REPOSITORY -->
         <section id="repository" class="section">
             <h2>📂 PDF Marksheet Document Repository</h2>
-            <div style="margin-bottom: 15px; display: flex; gap: 10px;">
-                <input type="text" id="repoSearchInput" placeholder="🔍 Search by Registration No..." style="flex: 1; margin: 0;">
+            
+            <div class="search-bar-container">
+                <input type="text" id="repoSearchInput" placeholder="🔍 Search by Registration No...">
                 <button onclick="applyRepoFilters()" class="btn-green">Search</button>
-                <button onclick="clearRepoSearch()" style="background:var(--text-muted);">Clear</button>
+                <button onclick="clearRepoSearch()" class="btn-gray">Clear</button>
             </div>
+            
             <div id="repository-container"><i>Loading Repository...</i></div>
         </section>
 
@@ -436,7 +443,7 @@
 
                 if (status.is_processing) {
                     document.getElementById("pauseBtn").innerText = "⏸️ Pause Processing";
-                    msg.innerHTML = `<div class="progress-card"><b style="color:#d35400;">⏳ Processing PDF:</b> Page ${status.processed_pages} of ${status.total_pages} (${status.extracted_count} records saved)...</div>`;
+                    msg.innerHTML = `<div class="progress-card"><b style="color:#d35400;">⏳ Processing PDF:</b> Page ${status.processed_pages} of ${status.total_pages} (${status.extracted_count} records saved)...<br><br><small style="color:var(--text-muted);">${status.status_message}</small></div>`;
                 } else if (status.is_paused) {
                     msg.innerHTML = `<div class="progress-card" style="border-color:#f59e0b; color:#b45309;"><b>${status.status_message}</b></div>`;
                     clearInterval(statusInterval);
@@ -455,7 +462,7 @@
 
             try {
                 const res = await fetch(`/api/student/${regNo}`);
-                if (!res.ok) throw new Error("Student not found.");
+                if (!res.ok) throw new Error("Student not found. Did you upload and extract their marksheet successfully?");
                 const data = await res.json();
                 
                 currentLoadedRegNo = data.student.reg_no;
@@ -502,7 +509,7 @@
                     tbody.innerHTML += `<tr>
                         <td><b>${p.course_code||'-'}</b></td><td>${p.course_name||'-'}</td><td>${p.component||'-'}</td>
                         <td>${p.full_marks||'-'}</td><td>${p.marks_obtained||'-'}</td><td>${p.credit||'-'}</td>
-                        <td><b>${p.grade||'-'}</b></td><td>${p.status||'-'}</td>
+                        <td><b style="color:var(--primary);">${p.grade||'-'}</b></td><td>${p.status||'-'}</td>
                     </tr>`;
                 }
             });
@@ -616,7 +623,9 @@
         async function loadDocStatus() {
             const regNo = document.getElementById("docRegNo").value.trim();
             if (!regNo) return alert("Enter Registration No.");
-            const data = await fetch(`/api/student/${regNo}`).then(res => res.json());
+            const res = await fetch(`/api/student/${regNo}`);
+            if(!res.ok) return alert("Student not found.");
+            const data = await res.json();
             currentLoadedRegNo = data.student.reg_no;
             setElementText("doc-student-title", `${data.student.name} (${data.student.reg_no})`);
             document.getElementById("marksheetCb").checked = data.student.marksheet_received;
@@ -641,7 +650,9 @@
         async function loadCareerStatus() {
             const regNo = document.getElementById("careerRegNo").value.trim();
             if (!regNo) return alert("Enter Registration No.");
-            const data = await fetch(`/api/student/${regNo}`).then(res => res.json());
+            const res = await fetch(`/api/student/${regNo}`);
+            if(!res.ok) return alert("Student not found.");
+            const data = await res.json();
             currentLoadedRegNo = data.student.reg_no;
             setElementText("career-student-title", `${data.student.name} (${data.student.reg_no})`);
             setElementValue("s-course-edit", data.student.course);
@@ -705,7 +716,7 @@
         }
         function renderDirectoryTable() {
             const container = document.getElementById("directory-container");
-            if (filteredStudentsList.length === 0) return container.innerHTML = "<p>No matching records.</p>";
+            if (filteredStudentsList.length === 0) return container.innerHTML = "<p style='text-align:center;'>No matching records.</p>";
             let html = `<table><thead><tr><th>Reg No</th><th>Name</th><th>Course</th><th>Passout Year</th><th>CGPA / Grade</th><th>Career</th>${currentUserRole === 'admin' ? '<th>Action</th>' : ''}</tr></thead><tbody>`;
             filteredStudentsList.forEach(s => {
                 html += `<tr><td><b>${s.registration_no}</b></td><td>${s.name}</td><td>${s.course}</td><td>${s.passout_year}</td><td><b>${s.overall_cgpa}</b> (${s.overall_grade})</td><td>${s.post_grad_status||'-'}</td>${currentUserRole === 'admin' ? `<td><button onclick="deleteSingleStudent('${s.registration_no}')" class="btn-sm-red">Delete</button></td>` : ''}</tr>`;
@@ -735,7 +746,7 @@
             const sVal = document.getElementById("repoSearchInput").value.trim().toLowerCase();
             const repoList = allStudentsList.filter(s => (sVal === "") || (s.registration_no && s.registration_no.toLowerCase().includes(sVal)));
             const container = document.getElementById("repository-container");
-            if (repoList.length === 0) return container.innerHTML = "<p>No matches.</p>";
+            if (repoList.length === 0) return container.innerHTML = "<p style='text-align:center;'>No matches.</p>";
             let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Action</th></tr></thead><tbody>`;
             repoList.forEach(s => {
                 let pdf = s.pdf_document_path ? `<a href="/${s.pdf_document_path}" target="_blank"><button class="btn-green">📄 View PDF</button></a>` : "Not Stored";
