@@ -193,58 +193,62 @@ def parse_marksheet_with_gemini_vision(page):
         {"semester": "I", "year": "2019", "full_marks": "400", "marks_obtained": "248", "credit": "20", "sgpa": "5.624"}
       ]
     }
-
-    RULES:
-    1. Extract ALL subjects into "papers". Include components (Theoretical/Practical).
-    2. Extract ALL available semesters from the summary table into "semesters".
-    3. Must strictly return JSON only.
     """
     
-    # Bulletproof fallback for 404 Model Errors
-    models_to_try = [
-        'gemini-1.5-flash',
-        'gemini-2.0-flash',
-        'gemini-1.5-pro',
-        'gemini-3.5-flash'
-    ]
+    models_to_try = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']
     
     last_exception = None
     for model_name in models_to_try:
-        try:
-            if ai_client_type == "legacy":
-                model = legacy_genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
-                response = model.generate_content([prompt, image])
-                txt = response.text.strip()
-            elif ai_client_type == "new":
-                response = ai_client.models.generate_content(
-                    model=model_name, contents=[prompt, image], 
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                )
-                txt = response.text.strip()
-            else:
-                raise Exception("API Key Missing or SDK Error")
+        for attempt in range(3): # Try each model 3 times before failing
+            try:
+                if ai_client_type == "legacy":
+                    model = legacy_genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+                    response = model.generate_content([prompt, image])
+                    txt = response.text.strip()
+                elif ai_client_type == "new":
+                    response = ai_client.models.generate_content(
+                        model=model_name, contents=[prompt, image], 
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    txt = response.text.strip()
+                else:
+                    raise Exception("API Key Missing or SDK Error")
 
-            if txt.startswith("```"):
-                txt = txt.strip("`").strip()
-                if txt.lower().startswith("json"): txt = txt[4:].strip()
-            
-            return json.loads(txt)
-            
-        except Exception as e:
-            last_exception = e
-            err_str = str(e).lower()
-            if "404" in err_str or "not found" in err_str: continue 
-            if "429" in err_str or "quota" in err_str: time.sleep(3); continue 
-            continue
+                if txt.startswith("```"):
+                    txt = txt.strip("`").strip()
+                    if txt.lower().startswith("json"): txt = txt[4:].strip()
+                
+                return json.loads(txt)
+                
+            except Exception as e:
+                last_exception = e
+                err_str = str(e).lower()
+                
+                if "404" in err_str or "not found" in err_str: 
+                    break # Model not found, immediately break attempt loop to try next model
+                
+                if "429" in err_str or "quota" in err_str or "exhausted" in err_str:
+                    wait_time = 35 # Default safe wait
+                    match = re.search(r'retry in (\d+)', err_str)
+                    if match: wait_time = int(match.group(1)) + 5
+                    print(f"Rate limit hit for {model_name}. Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                    continue # Retry the SAME model
+                
+                # For any other arbitrary error wait short and retry
+                time.sleep(3)
+                continue
 
     raise last_exception
 
-def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
+def process_large_pdf_in_background():
     global bg_upload_status
     db = SessionLocal()
+    temp_pdf = bg_upload_status["temp_pdf_path"]
+    selected_course = bg_upload_status["selected_course"]
     
     try:
-        doc = fitz.open(temp_pdf_path) if fitz else []
+        doc = fitz.open(temp_pdf) if fitz else []
         bg_upload_status["is_processing"] = True
         bg_upload_status["is_paused"] = False
         bg_upload_status["pause_requested"] = False
@@ -255,21 +259,42 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                 bg_upload_status["is_processing"] = False
                 bg_upload_status["is_paused"] = True
                 bg_upload_status["status_message"] = f"⏸️ Paused at page {page_num}."
-                save_upload_state()
-                db.close()
-                doc.close()
-                return
+                save_upload_state(); db.close(); doc.close(); return
 
             try:
                 page = doc[page_num]
-                data = parse_marksheet_with_gemini_vision(page)
-                reg_no = data.get("registration_no")
                 
-                if not reg_no or reg_no == "null":
-                    bg_upload_status["errors"].append(f"Page {page_num+1}: No Reg No detected.")
-                    bg_upload_status["processed_pages"] = page_num + 1
-                    save_upload_state()
-                    continue
+                if ai_client_type:
+                    try:
+                        # FREE TIER SAFEGUARD: Prevent hitting the 15 Requests Per Minute limit by sleeping
+                        if page_num > 0: time.sleep(4.5) 
+                        data = parse_marksheet_with_gemini_vision(page)
+                        reg_no = data.get("registration_no")
+                        
+                        if not reg_no or reg_no == "null":
+                            bg_upload_status["errors"].append(f"Page {page_num+1}: No Reg No detected.")
+                            bg_upload_status["processed_pages"] = page_num + 1
+                            save_upload_state()
+                            continue
+                            
+                    except Exception as ai_err:
+                        ai_error_msg = str(ai_err)
+                        print(f"[Page {page_num+1}] AI Error: {ai_error_msg}")
+                        
+                        # IF DAILY QUOTA IS EXHAUSTED, AUTO PAUSE INSTEAD OF LOSING DATA
+                        if "429" in ai_error_msg.lower() or "exhausted" in ai_error_msg.lower() or "quota" in ai_error_msg.lower():
+                            bg_upload_status["is_processing"] = False
+                            bg_upload_status["is_paused"] = True
+                            bg_upload_status["status_message"] = f"⏸️ AUTO-PAUSED: Google API Quota Exhausted on page {page_num+1}. Wait a moment and click Resume."
+                            bg_upload_status["errors"].append(f"Auto-Paused at Page {page_num+1} due to API Rate Limit.")
+                            save_upload_state()
+                            db.close()
+                            if doc: doc.close()
+                            return
+                            
+                        raise Exception(f"AI Parsing Failed: {ai_error_msg}")
+                else:
+                    raise Exception("API Key Missing or SDK Error")
 
                 # Prepare Normalized Data
                 norm_sems, norm_papers = [], []
@@ -279,7 +304,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         "semester": str(s.get("semester")).strip().upper().replace("SEMESTER", "").strip(),
                         "year": str(s.get("year", "")).strip(),
                         "full_marks": str(s.get("full_marks", "400")).strip(),
-                        "marks_obtained": str(s.get("marks", s.get("marks_obtained", ""))).strip(),
+                        "marks_obtained": str(s.get("marks_obtained", s.get("marks", ""))).strip(),
                         "credit": str(s.get("credit", "20")).strip(),
                         "sgpa": str(s.get("sgpa", "")).strip()
                     })
@@ -297,19 +322,17 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                         "status": str(p.get("status", "")).strip()
                     })
 
-                # Safe PDF Split Saving (Fixing the document closed issue)
-                pdf_repo_path = f"uploads/pdf_repository/{reg_no}.pdf"
+                # DB Insert & PDF Splitting
+                pdf_path = f"uploads/pdf_repository/{reg_no}.pdf"
                 try:
                     if fitz:
                         new_pdf = fitz.open()
                         new_pdf.insert_pdf(doc, from_page=page_num, to_page=page_num)
-                        new_pdf.save(pdf_repo_path)
+                        new_pdf.save(pdf_path)
                         new_pdf.close()
                 except Exception as e:
-                    print("Error saving single PDF:", e)
-                    pdf_repo_path = ""
+                    pdf_path = ""
 
-                # DB Insert / Update
                 student = db.query(Student).filter(Student.registration_no == reg_no).first()
                 if not student:
                     student = Student(registration_no=reg_no, admission_year="20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown")
@@ -323,7 +346,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
                 student.overall_cgpa = data.get("overall_cgpa", "N.A.")
                 student.overall_grade = data.get("overall_grade", "Fail")
                 student.remarks = data.get("remarks", "Qualified")
-                if pdf_repo_path: student.pdf_document_path = pdf_repo_path
+                if pdf_path: student.pdf_document_path = pdf_path
                 
                 db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
                 for s in norm_sems: db.add(SemesterRecord(registration_no=reg_no, **s))
@@ -338,9 +361,9 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
 
                 if page_num % 5 == 0: db.commit()
 
-            except Exception as e:
+            except Exception as page_err:
                 db.rollback()
-                bg_upload_status["errors"].append(f"Page {page_num+1} Error: {str(e)}")
+                bg_upload_status["errors"].append(f"Page {page_num+1} Error: {str(page_err)}")
                 bg_upload_status["processed_pages"] = page_num + 1
                 save_upload_state()
 
@@ -349,7 +372,7 @@ def process_large_pdf_in_background(temp_pdf_path: str, selected_course: str):
         bg_upload_status["is_processing"] = False
         bg_upload_status["status_message"] = f"✅ DONE! Processed {len(doc)} pages. Saved: {bg_upload_status['extracted_count']}."
         save_upload_state()
-        if os.path.exists(temp_pdf_path): os.remove(temp_pdf_path)
+        if os.path.exists(temp_pdf): os.remove(temp_pdf)
 
     except Exception as e:
         db.rollback()
@@ -396,13 +419,9 @@ async def upload_marksheet(background_tasks: BackgroundTasks, file: UploadFile =
     total_pages = len(doc)
     doc.close()
     
-    bg_upload_status.update({
-        "is_processing": True, "is_paused": False, "pause_requested": False,
-        "total_pages": total_pages, "processed_pages": 0, "extracted_count": 0,
-        "filename": file.filename, "temp_pdf_path": temp_pdf_path, "selected_course": selected_course, "errors": []
-    })
+    bg_upload_status.update({"is_processing": True, "is_paused": False, "pause_requested": False, "total_pages": total_pages, "processed_pages": 0, "extracted_count": 0, "filename": file.filename, "temp_pdf_path": temp_pdf_path, "selected_course": selected_course, "errors": []})
     save_upload_state()
-    background_tasks.add_task(process_large_pdf_in_background, temp_pdf_path, selected_course)
+    background_tasks.add_task(process_large_pdf_in_background)
     return {"message": "Started"}
 
 @app.post("/api/admin/pause-upload")
@@ -414,7 +433,7 @@ def pause_upload(user: dict = Depends(require_admin)):
 def resume_upload(background_tasks: BackgroundTasks, user: dict = Depends(require_admin)):
     if bg_upload_status["is_paused"]:
         bg_upload_status["is_processing"] = True; bg_upload_status["is_paused"] = False; bg_upload_status["pause_requested"] = False; save_upload_state()
-        background_tasks.add_task(process_large_pdf_in_background, bg_upload_status["temp_pdf_path"], bg_upload_status["selected_course"])
+        background_tasks.add_task(process_large_pdf_in_background)
     return {"message": "Resuming..."}
 
 @app.get("/api/student/{reg_no}")
@@ -482,15 +501,12 @@ async def update_student_status(
     return {"message": "Record updated!"}
 
 @app.get("/api/admin/all-students")
-def get_all_students(db: Session = Depends(get_db)): 
-    return db.query(Student).options(joinedload(Student.semesters)).all()
+def get_all_students(db: Session = Depends(get_db)): return db.query(Student).options(joinedload(Student.semesters)).all()
 
 @app.delete("/api/admin/student/{reg_no}")
 def delete_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(require_admin)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if student.pdf_document_path and os.path.exists(student.pdf_document_path): os.remove(student.pdf_document_path)
-    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-    db.query(PaperRecord).filter(PaperRecord.registration_no == reg_no).delete()
     db.delete(student)
     db.commit()
     return {"message": "Deleted"}
