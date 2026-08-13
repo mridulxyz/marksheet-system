@@ -6,6 +6,7 @@ import json
 import time
 import gc
 import io
+import tempfile
 from PIL import Image
 from dotenv import load_dotenv
 load_dotenv()
@@ -133,7 +134,10 @@ class PaperRecord(Base):
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("uploads/pdf_repository", exist_ok=True)
 
-STATE_FILE = "upload_state.json"
+# Save tracking file to OS Temp directory to avoid triggering Uvicorn Auto-Reloads
+TEMP_DIR = tempfile.gettempdir()
+STATE_FILE = os.path.join(TEMP_DIR, "cu_upload_state.json")
+
 bg_upload_status = {
     "is_processing": False, "is_paused": False, "pause_requested": False,
     "total_pages": 0, "processed_pages": 0, "extracted_count": 0,
@@ -161,8 +165,10 @@ def save_upload_state():
     except: pass
 
 def parse_marksheet_with_gemini_vision(page):
-    pix = page.get_pixmap(dpi=300)
-    image = Image.open(io.BytesIO(pix.tobytes("jpeg")))
+    # REDUCED DPI TO 100 TO COMPLETELY ELIMINATE OUT-OF-MEMORY (RAM) CRASHES
+    pix = page.get_pixmap(dpi=100)
+    img_data = pix.tobytes("jpeg")
+    image = Image.open(io.BytesIO(img_data))
 
     prompt = """
     Extract Calcutta University Grade Sheet data.
@@ -224,9 +230,11 @@ def parse_marksheet_with_gemini_vision(page):
                 if txt.startswith("```"):
                     txt = txt.strip("`").strip()
                     if txt.lower().startswith("json"): txt = txt[4:].strip()
-                    # FORCE FREE MEMORY
-                    image.close()
-                    pix = None
+                
+                # STRICT MEMORY CLEANUP
+                image.close()
+                del img_data
+                del pix
                 
                 return json.loads(txt)
                 
@@ -240,6 +248,10 @@ def parse_marksheet_with_gemini_vision(page):
                 time.sleep(3)
                 continue
 
+    # Cleanup memory even on complete failure
+    image.close()
+    del img_data
+    del pix
     raise last_exception
 
 def process_large_pdf_in_background():
@@ -266,7 +278,6 @@ def process_large_pdf_in_background():
                 
                 if ai_client_type:
                     try:
-                        # SPEED BOOST: Drastically reduced sleep time. Relies on the 429 block above for safe throttling.
                         if page_num > 0: time.sleep(0.3) 
                         data = parse_marksheet_with_gemini_vision(page)
                         reg_no = data.get("registration_no")
@@ -322,6 +333,7 @@ def process_large_pdf_in_background():
                         new_pdf.insert_pdf(doc, from_page=page_num, to_page=page_num)
                         new_pdf.save(pdf_path)
                         new_pdf.close()
+                        del new_pdf
                 except Exception: pdf_path = ""
 
                 student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -356,6 +368,10 @@ def process_large_pdf_in_background():
                 save_upload_state()
 
                 if page_num % 5 == 0: db.commit()
+                
+                # FORCE GARBAGE COLLECTION TO PREVENT RAM OVERFLOW
+                page = None
+                gc.collect()
 
             except Exception as page_err:
                 db.rollback()
@@ -393,7 +409,6 @@ def startup_db_setup():
     Base.metadata.create_all(bind=engine)
     try:
         with engine.begin() as conn:
-            # Handle SQLite & PostgreSQL safely
             if "sqlite" in DATABASE_URL:
                 tables = [r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()]
                 if "paper_records" not in tables:
@@ -416,14 +431,16 @@ def serve_frontend(): return FileResponse("index.html")
 @app.get("/api/auth/me")
 def get_auth_me(user: dict = Depends(get_current_user)): return {"username": user["username"], "role": user["role"]}
 
+# MADE ASYNC TO PREVENT BLOCKING THE NETWORK PIPELINE
 @app.get("/api/admin/upload-status")
-def get_upload_status(): return bg_upload_status
+async def get_upload_status(): return bg_upload_status
 
 @app.post("/api/admin/upload-marksheet")
 async def upload_marksheet(background_tasks: BackgroundTasks, file: UploadFile = File(...), 
                            selected_curr: str = Form("AUTO"), selected_course: str = Form("AUTO"), 
                            selected_subject: str = Form("AUTO"), user: dict = Depends(require_admin)):
-    temp_pdf_path = f"temp_{secrets.token_hex(4)}_{file.filename}"
+    # Save target PDF to temp directory to bypass Uvicorn watchers
+    temp_pdf_path = os.path.join(TEMP_DIR, f"temp_{secrets.token_hex(4)}_{file.filename}")
     with open(temp_pdf_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
     doc = fitz.open(temp_pdf_path) if fitz else []
     total_pages = len(doc)
@@ -439,19 +456,19 @@ async def upload_marksheet(background_tasks: BackgroundTasks, file: UploadFile =
     return {"message": "Started"}
 
 @app.post("/api/admin/pause-upload")
-def pause_upload(user: dict = Depends(require_admin)):
+async def pause_upload(user: dict = Depends(require_admin)):
     if bg_upload_status["is_processing"]: bg_upload_status["pause_requested"] = True; save_upload_state()
     return {"message": "Pausing..."}
 
 @app.post("/api/admin/resume-upload")
-def resume_upload(background_tasks: BackgroundTasks, user: dict = Depends(require_admin)):
+async def resume_upload(background_tasks: BackgroundTasks, user: dict = Depends(require_admin)):
     if bg_upload_status["is_paused"]:
         bg_upload_status["is_processing"] = True; bg_upload_status["is_paused"] = False; bg_upload_status["pause_requested"] = False; save_upload_state()
         background_tasks.add_task(process_large_pdf_in_background)
     return {"message": "Resuming..."}
 
 @app.post("/api/admin/cancel-upload")
-def cancel_upload(user: dict = Depends(require_admin)):
+async def cancel_upload(user: dict = Depends(require_admin)):
     global bg_upload_status
     bg_upload_status["is_processing"] = False; bg_upload_status["is_paused"] = False; bg_upload_status["pause_requested"] = False; bg_upload_status["status_message"] = "❌ Process Canceled by User."
     if bg_upload_status.get("temp_pdf_path") and os.path.exists(bg_upload_status["temp_pdf_path"]):
@@ -545,4 +562,6 @@ def clear_all_students(db: Session = Depends(get_db), user: dict = Depends(requi
 
 if __name__ == "__main__":
     import uvicorn
+    # EXPLICITLY DISABLE RELOAD TO PREVENT SQLITE DB MODIFICATIONS FROM CRASHING THE SERVER
+    print("\n[+] Starting Server... (Reload explicitly disabled for file-writing safety)\n")
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=False)
