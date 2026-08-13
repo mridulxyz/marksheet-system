@@ -195,7 +195,7 @@ def parse_marksheet_with_gemini_vision(page):
     }
     """
     
-    models_to_try = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']
+    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash']
     
     last_exception = None
     for model_name in models_to_try:
