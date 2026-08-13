@@ -12,10 +12,10 @@ load_dotenv()
 
 # Safe Imports for PDF processing
 try:
-    import pymupdf as fitz  # PyMuPDF
+    import pymupdf as fitz
 except ImportError:
     try:
-        import fitz # Fallback for older versions
+        import fitz
     except ImportError:
         fitz = None
 
@@ -83,6 +83,7 @@ class Student(Base):
     name = Column(String)
     admission_year = Column(String)
     passout_year = Column(String, default="Nil")
+    curriculum = Column(String, default="Unknown") 
     course = Column(String, default="Unknown Course")
     subject = Column(String, default="Unknown")
     overall_cgpa = Column(String) 
@@ -132,12 +133,12 @@ class PaperRecord(Base):
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("uploads/pdf_repository", exist_ok=True)
 
-# --- GLOBAL BACKGROUND TRACKER ---
 STATE_FILE = "upload_state.json"
 bg_upload_status = {
     "is_processing": False, "is_paused": False, "pause_requested": False,
     "total_pages": 0, "processed_pages": 0, "extracted_count": 0,
-    "status_message": "Idle", "filename": "", "temp_pdf_path": "", "selected_course": "AUTO",
+    "status_message": "Idle", "filename": "", "temp_pdf_path": "", 
+    "selected_curr": "AUTO", "selected_course": "AUTO", "selected_subject": "AUTO",
     "errors": []
 }
 
@@ -164,14 +165,20 @@ def parse_marksheet_with_gemini_vision(page):
     image = Image.open(io.BytesIO(pix.tobytes("jpeg")))
 
     prompt = """
-    Extract Calcutta University Grade Sheet data (spanning up to 8 semesters).
+    Extract Calcutta University Grade Sheet data.
+    IMPORTANT RULES:
+    1. Identify Curriculum: If "CCF" or "MDC" or "Four Year" or "Three Year" is mentioned, return 'CCF'. If it's Choice Based Credit System, return 'CBCS'.
+    2. Identify Course (e.g., BA (Hons), BSc (MDC), etc.). Note: "Three Year" usually means MDC or General.
+    3. Identify Subject code (e.g., BNGA, BGNM, etc.). If MDC or General, subject may be empty or 'Unknown'.
+    
     Return ONLY a valid JSON object matching this exact schema:
 
     {
       "registration_no": "424-1211-0240-19",
       "roll_no": "192424-11-0044",
       "name": "SWAGATA PURKAIT",
-      "course": "B.A. (Honours) Examination",
+      "curriculum": "CBCS",
+      "course": "BA (Hons)",
       "subject": "BNGA",
       "passout_year": "2024",
       "overall_cgpa": "6.819",
@@ -195,11 +202,12 @@ def parse_marksheet_with_gemini_vision(page):
     }
     """
     
+    # 2026 Compatible Google Models
     models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.0-flash']
     
     last_exception = None
     for model_name in models_to_try:
-        for attempt in range(3): # Try each model 3 times before failing
+        for attempt in range(3): 
             try:
                 if ai_client_type == "legacy":
                     model = legacy_genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
@@ -223,19 +231,10 @@ def parse_marksheet_with_gemini_vision(page):
             except Exception as e:
                 last_exception = e
                 err_str = str(e).lower()
-                
-                if "404" in err_str or "not found" in err_str: 
-                    break # Model not found, immediately break attempt loop to try next model
-                
+                if "404" in err_str or "not found" in err_str: break 
                 if "429" in err_str or "quota" in err_str or "exhausted" in err_str:
-                    wait_time = 35 # Default safe wait
-                    match = re.search(r'retry in (\d+)', err_str)
-                    if match: wait_time = int(match.group(1)) + 5
-                    print(f"Rate limit hit for {model_name}. Waiting {wait_time}s before retry...")
-                    time.sleep(wait_time)
-                    continue # Retry the SAME model
-                
-                # For any other arbitrary error wait short and retry
+                    time.sleep(35)
+                    continue
                 time.sleep(3)
                 continue
 
@@ -245,7 +244,6 @@ def process_large_pdf_in_background():
     global bg_upload_status
     db = SessionLocal()
     temp_pdf = bg_upload_status["temp_pdf_path"]
-    selected_course = bg_upload_status["selected_course"]
     
     try:
         doc = fitz.open(temp_pdf) if fitz else []
@@ -266,32 +264,24 @@ def process_large_pdf_in_background():
                 
                 if ai_client_type:
                     try:
-                        # FREE TIER SAFEGUARD: Prevent hitting the 15 Requests Per Minute limit by sleeping
                         if page_num > 0: time.sleep(4.5) 
                         data = parse_marksheet_with_gemini_vision(page)
                         reg_no = data.get("registration_no")
-                        
                         if not reg_no or reg_no == "null":
                             bg_upload_status["errors"].append(f"Page {page_num+1}: No Reg No detected.")
                             bg_upload_status["processed_pages"] = page_num + 1
                             save_upload_state()
                             continue
-                            
                     except Exception as ai_err:
                         ai_error_msg = str(ai_err)
-                        print(f"[Page {page_num+1}] AI Error: {ai_error_msg}")
-                        
-                        # IF DAILY QUOTA IS EXHAUSTED, AUTO PAUSE INSTEAD OF LOSING DATA
                         if "429" in ai_error_msg.lower() or "exhausted" in ai_error_msg.lower() or "quota" in ai_error_msg.lower():
                             bg_upload_status["is_processing"] = False
                             bg_upload_status["is_paused"] = True
-                            bg_upload_status["status_message"] = f"⏸️ AUTO-PAUSED: Google API Quota Exhausted on page {page_num+1}. Wait a moment and click Resume."
-                            bg_upload_status["errors"].append(f"Auto-Paused at Page {page_num+1} due to API Rate Limit.")
-                            save_upload_state()
-                            db.close()
+                            bg_upload_status["status_message"] = f"⏸️ AUTO-PAUSED: Google API Quota Exhausted on page {page_num+1}."
+                            bg_upload_status["errors"].append(f"Auto-Paused at Page {page_num+1} due to API Limit.")
+                            save_upload_state(); db.close(); 
                             if doc: doc.close()
                             return
-                            
                         raise Exception(f"AI Parsing Failed: {ai_error_msg}")
                 else:
                     raise Exception("API Key Missing or SDK Error")
@@ -322,7 +312,6 @@ def process_large_pdf_in_background():
                         "status": str(p.get("status", "")).strip()
                     })
 
-                # DB Insert & PDF Splitting
                 pdf_path = f"uploads/pdf_repository/{reg_no}.pdf"
                 try:
                     if fitz:
@@ -330,18 +319,23 @@ def process_large_pdf_in_background():
                         new_pdf.insert_pdf(doc, from_page=page_num, to_page=page_num)
                         new_pdf.save(pdf_path)
                         new_pdf.close()
-                except Exception as e:
-                    pdf_path = ""
+                except Exception: pdf_path = ""
 
                 student = db.query(Student).filter(Student.registration_no == reg_no).first()
                 if not student:
                     student = Student(registration_no=reg_no, admission_year="20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown")
                     db.add(student)
                 
+                # Use dropdown overrides if not AUTO
+                scurr = bg_upload_status.get("selected_curr", "AUTO")
+                scourse = bg_upload_status.get("selected_course", "AUTO")
+                ssubj = bg_upload_status.get("selected_subject", "AUTO")
+
                 student.name = data.get("name", "Unknown")
                 student.roll_no = data.get("roll_no", "Unknown")
-                student.course = selected_course if selected_course != "AUTO" else data.get("course", "Unknown")
-                student.subject = data.get("subject", "Unknown")
+                student.curriculum = scurr if scurr != "AUTO" and scurr else data.get("curriculum", "Unknown")
+                student.course = scourse if scourse != "AUTO" and scourse else data.get("course", "Unknown")
+                student.subject = ssubj if ssubj != "AUTO" and ssubj else data.get("subject", "Unknown")
                 student.passout_year = str(data.get("passout_year", "Nil")).strip()
                 student.overall_cgpa = data.get("overall_cgpa", "N.A.")
                 student.overall_grade = data.get("overall_grade", "Fail")
@@ -356,7 +350,7 @@ def process_large_pdf_in_background():
 
                 bg_upload_status["extracted_count"] += 1
                 bg_upload_status["processed_pages"] = page_num + 1
-                bg_upload_status["status_message"] = f"Processing page {page_num+1} of {len(doc)} ({bg_upload_status['extracted_count']} records saved)..."
+                bg_upload_status["status_message"] = f"Processing page {page_num+1} of {len(doc)} ({bg_upload_status['extracted_count']} saved)..."
                 save_upload_state()
 
                 if page_num % 5 == 0: db.commit()
@@ -400,6 +394,10 @@ def startup_db_setup():
             tables = [r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()]
             if "paper_records" not in tables:
                 conn.execute(text("CREATE TABLE paper_records (id INTEGER PRIMARY KEY AUTOINCREMENT, registration_no VARCHAR, course_code VARCHAR, course_name VARCHAR, component VARCHAR, full_marks VARCHAR, marks_obtained VARCHAR, credit VARCHAR, grade VARCHAR, status VARCHAR)"))
+            # Safely add curriculum column if missing
+            columns = [r[1] for r in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
+            if "curriculum" not in columns:
+                conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
     load_upload_state()
 
 @app.get("/")
@@ -412,14 +410,20 @@ def get_auth_me(user: dict = Depends(get_current_user)): return {"username": use
 def get_upload_status(): return bg_upload_status
 
 @app.post("/api/admin/upload-marksheet")
-async def upload_marksheet(background_tasks: BackgroundTasks, file: UploadFile = File(...), selected_course: str = Form("AUTO"), user: dict = Depends(require_admin)):
+async def upload_marksheet(background_tasks: BackgroundTasks, file: UploadFile = File(...), 
+                           selected_curr: str = Form("AUTO"), selected_course: str = Form("AUTO"), 
+                           selected_subject: str = Form("AUTO"), user: dict = Depends(require_admin)):
     temp_pdf_path = f"temp_{secrets.token_hex(4)}_{file.filename}"
     with open(temp_pdf_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
     doc = fitz.open(temp_pdf_path) if fitz else []
     total_pages = len(doc)
     doc.close()
     
-    bg_upload_status.update({"is_processing": True, "is_paused": False, "pause_requested": False, "total_pages": total_pages, "processed_pages": 0, "extracted_count": 0, "filename": file.filename, "temp_pdf_path": temp_pdf_path, "selected_course": selected_course, "errors": []})
+    bg_upload_status.update({
+        "is_processing": True, "is_paused": False, "pause_requested": False, "total_pages": total_pages, 
+        "processed_pages": 0, "extracted_count": 0, "filename": file.filename, "temp_pdf_path": temp_pdf_path, 
+        "selected_curr": selected_curr, "selected_course": selected_course, "selected_subject": selected_subject, "errors": []
+    })
     save_upload_state()
     background_tasks.add_task(process_large_pdf_in_background)
     return {"message": "Started"}
@@ -430,24 +434,21 @@ def pause_upload(user: dict = Depends(require_admin)):
     return {"message": "Pausing..."}
 
 @app.post("/api/admin/resume-upload")
-def cancel_upload(user: dict = Depends(require_admin)):
-    global bg_upload_status
-    bg_upload_status["is_processing"] = False
-    bg_upload_status["is_paused"] = False
-    bg_upload_status["pause_requested"] = False
-    bg_upload_status["status_message"] = "❌ Process Canceled by User."
-    if bg_upload_status.get("temp_pdf_path") and os.path.exists(bg_upload_status["temp_pdf_path"]):
-        try:
-            os.remove(bg_upload_status["temp_pdf_path"])
-        except Exception:
-            pass
-    save_upload_state()
-    return {"message": "Canceled"}
 def resume_upload(background_tasks: BackgroundTasks, user: dict = Depends(require_admin)):
     if bg_upload_status["is_paused"]:
         bg_upload_status["is_processing"] = True; bg_upload_status["is_paused"] = False; bg_upload_status["pause_requested"] = False; save_upload_state()
         background_tasks.add_task(process_large_pdf_in_background)
     return {"message": "Resuming..."}
+
+@app.post("/api/admin/cancel-upload")
+def cancel_upload(user: dict = Depends(require_admin)):
+    global bg_upload_status
+    bg_upload_status["is_processing"] = False; bg_upload_status["is_paused"] = False; bg_upload_status["pause_requested"] = False; bg_upload_status["status_message"] = "❌ Process Canceled by User."
+    if bg_upload_status.get("temp_pdf_path") and os.path.exists(bg_upload_status["temp_pdf_path"]):
+        try: os.remove(bg_upload_status["temp_pdf_path"])
+        except: pass
+    save_upload_state()
+    return {"message": "Canceled"}
 
 @app.get("/api/student/{reg_no}")
 def get_student(reg_no: str, db: Session = Depends(get_db)):
@@ -457,7 +458,7 @@ def get_student(reg_no: str, db: Session = Depends(get_db)):
         "student": {
             "name": student.name, "reg_no": student.registration_no, "roll_no": student.roll_no,
             "admission_year": student.admission_year, "passout_year": student.passout_year, 
-            "course": student.course, "subject": student.subject,
+            "curriculum": student.curriculum, "course": student.course, "subject": student.subject,
             "cgpa": student.overall_cgpa, "grade": student.overall_grade, "remarks": student.remarks,
             "marksheet_received": student.marksheet_received, "certificate_received": student.certificate_received,
             "marksheet_issue_date": student.marksheet_issue_date, "certificate_issue_date": student.certificate_issue_date,
@@ -472,7 +473,9 @@ def get_student(reg_no: str, db: Session = Depends(get_db)):
 async def update_student_profile_full(reg_no: str, payload: dict, db: Session = Depends(get_db)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
     if not student: raise HTTPException(status_code=404)
-    student.name, student.roll_no, student.course, student.subject = payload.get("name"), payload.get("roll_no"), payload.get("course"), payload.get("subject")
+    
+    student.name, student.roll_no = payload.get("name"), payload.get("roll_no")
+    student.curriculum, student.course, student.subject = payload.get("curriculum"), payload.get("course"), payload.get("subject")
     student.passout_year, student.overall_cgpa, student.overall_grade, student.remarks = payload.get("passout_year"), payload.get("cgpa"), payload.get("grade"), payload.get("remarks")
     
     db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
@@ -499,11 +502,11 @@ async def update_issuance_detailed(
 
 @app.post("/api/admin/update-status/{reg_no}")
 async def update_student_status(
-    reg_no: str, course: str = Form(...), marksheet_received: bool = Form(...), certificate_received: bool = Form(...),
+    reg_no: str, marksheet_received: bool = Form(...), certificate_received: bool = Form(...),
     status: str = Form(...), details: str = Form(""), proof_file: UploadFile = File(None), db: Session = Depends(get_db)
 ):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
-    student.course, student.marksheet_received, student.certificate_received = course, marksheet_received, certificate_received
+    student.marksheet_received, student.certificate_received = marksheet_received, certificate_received
     student.post_grad_status, student.post_grad_details = status, details
     if proof_file:
         safe_filename = f"{reg_no}_proof.{proof_file.filename.split('.')[-1]}"
