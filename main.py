@@ -208,7 +208,14 @@ def parse_marksheet_with_gemini_vision(page):
     }
     """
     
-    models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.0-flash']
+    #models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.0-flash']
+    models_to_try = [
+        'gemini-3.5-flash',
+        'gemini-flash',            # Standard auto-routing alias
+        'gemini-flash-latest',     # Experimental auto-routing alias
+        'gemini-2.5-flash',        # Legacy fallback
+        'gemini-1.5-flash'         # Deep legacy fallback (Always works on older API keys)
+    ]
     
     last_exception = None
     for model_name in models_to_try:
