@@ -61,7 +61,7 @@ def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
     if secrets.compare_digest(u, ADMIN_USERNAME) and secrets.compare_digest(p, ADMIN_PASSWORD): return {"username": u, "role": "admin"}
     if secrets.compare_digest(u, USER1_USERNAME) and secrets.compare_digest(p, USER1_PASSWORD): return {"username": u, "role": "user"}
     if secrets.compare_digest(u, USER2_USERNAME) and secrets.compare_digest(p, USER2_PASSWORD): return {"username": u, "role": "user"}
-    raise HTTPException(status_code=401, detail="Invalid credentials", headers={"WWW-Authenticate": "Basic"})
+    raise HTTPException(status_code=401, detail="Invalid credentials", headers={"WWW-Authenticate": "Bearer"})
 
 def require_admin(user: dict = Depends(get_current_user)):
     if user["role"] != "admin": raise HTTPException(status_code=403, detail="Admin required.")
@@ -430,6 +430,19 @@ def pause_upload(user: dict = Depends(require_admin)):
     return {"message": "Pausing..."}
 
 @app.post("/api/admin/resume-upload")
+def cancel_upload(user: dict = Depends(require_admin)):
+    global bg_upload_status
+    bg_upload_status["is_processing"] = False
+    bg_upload_status["is_paused"] = False
+    bg_upload_status["pause_requested"] = False
+    bg_upload_status["status_message"] = "❌ Process Canceled by User."
+    if bg_upload_status.get("temp_pdf_path") and os.path.exists(bg_upload_status["temp_pdf_path"]):
+        try:
+            os.remove(bg_upload_status["temp_pdf_path"])
+        except Exception:
+            pass
+    save_upload_state()
+    return {"message": "Canceled"}
 def resume_upload(background_tasks: BackgroundTasks, user: dict = Depends(require_admin)):
     if bg_upload_status["is_paused"]:
         bg_upload_status["is_processing"] = True; bg_upload_status["is_paused"] = False; bg_upload_status["pause_requested"] = False; save_upload_state()
