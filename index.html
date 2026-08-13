@@ -15,6 +15,19 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg-main); color: var(--text-dark); min-height: 100vh; display: flex; flex-direction: column; }
         
+        /* STATE OF THE ART LOGIN WINDOW */
+        .login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+        .login-box { background: white; padding: 40px 30px; border-radius: 16px; width: 100%; max-width: 420px; box-shadow: 0 25px 50px rgba(0,0,0,0.25); text-align: center; animation: popIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        .login-logo { font-size: 48px; background: linear-gradient(135deg, #3b82f6, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
+        .login-box h2 { font-size: 26px; color: var(--secondary); margin-bottom: 5px; }
+        .login-box p { color: var(--text-muted); font-size: 14px; margin-bottom: 25px; }
+        .login-input { width: 100%; padding: 14px 16px; margin-bottom: 15px; border: 2px solid var(--border-color); border-radius: 10px; font-size: 15px; transition: all 0.2s; background: #f8fafc; }
+        .login-input:focus { outline: none; border-color: var(--primary); background: white; box-shadow: 0 0 0 4px rgba(37,99,235,0.1); }
+        .login-btn { width: 100%; padding: 14px; font-size: 16px; background: linear-gradient(135deg, #2563eb, #06b6d4); border: none; color: white; border-radius: 10px; cursor: pointer; font-weight: bold; transition: transform 0.2s, box-shadow 0.2s; }
+        .login-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(37,99,235,0.2); }
+        #login-error { color: var(--danger); font-size: 14px; font-weight: bold; margin-bottom: 15px; display: none; }
+        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
         .navbar { background-color: var(--secondary); color: white; padding: 0 25px; height: 70px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15);}
         .nav-brand { display: flex; align-items: center; gap: 12px; }
         .brand-logo { font-size: 26px; background: linear-gradient(135deg, #3b82f6, #06b6d4); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
@@ -26,7 +39,9 @@
         .nav-tab:hover { color: #f8fafc; background: rgba(255,255,255,0.08); }
         .nav-tab.active { color: #ffffff; background-color: var(--primary); box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);}
 
-        .user-badge { background-color: var(--secondary-light); border: 1px solid #334155; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; color: #38bdf8; }
+        .user-badge { background-color: var(--secondary-light); border: 1px solid #334155; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
+        .logout-btn { background: #ef4444; border: none; color: white; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        .logout-btn:hover { background: #b91c1c; }
 
         .main-container { flex: 1; padding: 30px 40px; max-width: 1400px; width: 100%; margin: 0 auto; }
         .section { display: none; background: var(--card-bg); padding: 35px; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 4px 20px rgba(0,0,0,0.05); animation: fadeIn 0.3s ease-in-out;}
@@ -41,7 +56,7 @@
         input[type="text"], input[type="date"], input[type="file"], select { padding: 12px 14px; margin: 6px 0; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
         
         button { padding: 12px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; background-color: var(--primary); color: white; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s;}
-        button:hover { background-color: var(--primary-hover); transform: translateY(-1px);}
+        button:hover { filter: brightness(0.9); transform: translateY(-1px);}
         .btn-green { background-color: var(--success) !important; width: auto !important; }
         .btn-orange { background-color: var(--warning) !important; width: auto !important; color: #000 !important; }
         .btn-red { background-color: var(--danger) !important; width: auto !important; }
@@ -84,6 +99,21 @@
 </head>
 <body>
 
+    <!-- STATE OF THE ART LOGIN MODAL -->
+    <div class="login-overlay" id="login-overlay">
+        <div class="login-box">
+            <div class="login-logo">🎓</div>
+            <h2>Welcome Back</h2>
+            <p>Shyampur Siddheswari Portal Access</p>
+            <div id="login-error"></div>
+            <form onsubmit="doLogin(event)">
+                <input type="text" id="login-user" class="login-input" placeholder="Username" required autocomplete="username">
+                <input type="password" id="login-pass" class="login-input" placeholder="Password" required autocomplete="current-password">
+                <button type="submit" class="login-btn">Secure Login ➔</button>
+            </form>
+        </div>
+    </div>
+
     <header class="navbar">
         <div class="nav-brand"><div class="brand-logo">🎓</div><div><div class="brand-title">Shyampur Siddheswari Mahavidyalaya</div><div class="brand-subtitle">Marksheet Portal</div></div></div>
         
@@ -97,9 +127,9 @@
             <button class="nav-tab" onclick="switchTab(event, 'repository'); fetchPdfRepository();">7. 📂 Repository</button>
         </nav>
 
-        <div style="display: flex; align-items: center;">
-            <div id="userBadge" style="background:#334155; padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; color:#38bdf8;">Checking...</div>
-            <button onclick="logout()" class="btn-red" style="padding: 6px 14px !important; font-size: 12px !important; border-radius: 20px; margin-left: 10px;">Logout</button>
+        <div class="user-badge">
+            <span id="userBadgeText">Checking...</span>
+            <button onclick="logout()" class="logout-btn">Logout</button>
         </div>
     </header>
 
@@ -127,10 +157,11 @@
             </div>
             <input type="file" id="pdfFile" accept="application/pdf" style="display:none;" onchange="updateFileNameDisplay()">
 
-            <div style="display: flex; gap: 10px;">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                 <button id="uploadBtn" class="btn-green" onclick="uploadPDF()">🚀 Start Extraction</button>
-                <button id="pauseBtn" class="btn-orange" onclick="pauseUpload()" style="display:none;">⏸️ Pause Processing</button>
-                <button id="resumeBtn" class="btn-green" onclick="resumeUpload()" style="display:none;">▶️ Resume Processing</button>
+                <button id="pauseBtn" class="btn-orange" onclick="pauseUpload()" style="display:none;">⏸️ Pause</button>
+                <button id="resumeBtn" class="btn-green" onclick="resumeUpload()" style="display:none;">▶️ Resume</button>
+                <button id="cancelBtn" class="btn-red" onclick="cancelUpload()" style="display:none;">🛑 Cancel Upload</button>
             </div>
             
             <div id="upload-msg"></div>
@@ -375,25 +406,67 @@
         let currentUserRole = "user";
         let gChart = null; let cChart = null;
 
+        // Custom API fetch wrapper injecting the Auth Token
+        function apiFetch(url, options = {}) {
+            const token = sessionStorage.getItem('authToken');
+            if (!options.headers) options.headers = {};
+            if (token) options.headers['Authorization'] = 'Basic ' + token;
+            return fetch(url, options);
+        }
+
         // AUTH & BOOTSTRAP
         window.onload = async function() {
-            try {
-                const res = await fetch('/api/auth/me');
-                if (res.ok) {
-                    const data = await res.json();
-                    currentUserRole = data.role;
-                    document.getElementById("userBadge").innerText = `User: ${data.username} (${data.role.toUpperCase()})`;
-                    if (currentUserRole !== "admin") {
-                        document.getElementById("clearAllBtn").style.display = "none";
-                        document.getElementById("tab-upload").style.display = "none";
-                        document.getElementById("tab-search").click();
-                    }
-                }
-            } catch (e) {}
-            if (currentUserRole === "admin") pollUploadStatus();
+            const token = sessionStorage.getItem('authToken');
+            if (token) {
+                try {
+                    const res = await apiFetch('/api/auth/me');
+                    if (res.ok) {
+                        const data = await res.json();
+                        completeLogin(data);
+                    } else { sessionStorage.removeItem('authToken'); }
+                } catch (e) {}
+            }
         };
 
-        function logout() { fetch('/api/auth/me', { headers: { 'Authorization': 'Basic ' + btoa('logout:logout') } }).finally(() => window.location.reload()); }
+        async function doLogin(e) {
+            e.preventDefault();
+            const u = document.getElementById('login-user').value;
+            const p = document.getElementById('login-pass').value;
+            const token = btoa(u + ":" + p);
+            sessionStorage.setItem('authToken', token);
+            try {
+                const res = await apiFetch('/api/auth/me');
+                if (res.ok) {
+                    const data = await res.json();
+                    completeLogin(data);
+                } else {
+                    document.getElementById('login-error').style.display = 'block';
+                    document.getElementById('login-error').innerText = "Incorrect Username or Password!";
+                    sessionStorage.removeItem('authToken');
+                }
+            } catch (err) {
+                document.getElementById('login-error').style.display = 'block';
+                document.getElementById('login-error').innerText = "Network Error! Could not reach the server.";
+            }
+        }
+
+        function completeLogin(data) {
+            document.getElementById('login-overlay').style.display = 'none';
+            currentUserRole = data.role;
+            document.getElementById("userBadgeText").innerText = `${data.username.toUpperCase()} (${data.role.toUpperCase()})`;
+            if (currentUserRole !== "admin") {
+                document.getElementById("clearAllBtn").style.display = "none";
+                document.getElementById("tab-upload").style.display = "none";
+                document.getElementById("tab-search").click();
+            } else {
+                pollUploadStatus();
+            }
+        }
+
+        function logout() { 
+            sessionStorage.removeItem('authToken');
+            window.location.reload(); 
+        }
         
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
@@ -417,21 +490,38 @@
             document.getElementById("uploadBtn").disabled = true;
             document.getElementById("upload-msg").innerHTML = "<div class='progress-card'>🚀 Starting upload...</div>";
             const formData = new FormData(); formData.append("file", file); formData.append("selected_course", document.getElementById("uploadCourseSelect").value);
-            const res = await fetch(`/api/admin/upload-marksheet`, { method: "POST", body: formData });
+            const res = await apiFetch(`/api/admin/upload-marksheet`, { method: "POST", body: formData });
             if (res.ok) { if(statusInterval) clearInterval(statusInterval); statusInterval = setInterval(pollUploadStatus, 2000); }
         }
 
-        async function pauseUpload() { await fetch('/api/admin/pause-upload', { method: "POST" }); document.getElementById("pauseBtn").innerText = "Pausing..."; }
-        async function resumeUpload() { await fetch('/api/admin/resume-upload', { method: "POST" }); document.getElementById("resumeBtn").style.display = "none"; if(statusInterval) clearInterval(statusInterval); statusInterval = setInterval(pollUploadStatus, 2000); }
+        async function pauseUpload() { await apiFetch('/api/admin/pause-upload', { method: "POST" }); document.getElementById("pauseBtn").innerText = "Pausing..."; }
+        
+        async function resumeUpload() { 
+            await apiFetch('/api/admin/resume-upload', { method: "POST" }); 
+            document.getElementById("resumeBtn").style.display = "none"; 
+            document.getElementById("upload-msg").innerHTML = "<div class='progress-card'>🔄 Reconnecting...</div>";
+            if(statusInterval) clearInterval(statusInterval); 
+            statusInterval = setInterval(pollUploadStatus, 2000); 
+        }
+
+        async function cancelUpload() {
+            if(confirm("Are you sure you want to completely cancel processing this file?")) {
+                await apiFetch('/api/admin/cancel-upload', { method: "POST" });
+                if(statusInterval) clearInterval(statusInterval);
+                pollUploadStatus(); // Fetch final state
+            }
+        }
 
         async function pollUploadStatus() {
             try {
-                const res = await fetch('/api/admin/upload-status');
+                const res = await apiFetch('/api/admin/upload-status');
+                if(!res.ok) throw new Error("Bad Response");
                 const status = await res.json();
                 const msg = document.getElementById("upload-msg");
                 
                 document.getElementById("pauseBtn").style.display = status.is_processing ? "inline-flex" : "none";
                 document.getElementById("resumeBtn").style.display = status.is_paused ? "inline-flex" : "none";
+                document.getElementById("cancelBtn").style.display = (status.is_processing || status.is_paused) ? "inline-flex" : "none";
                 document.getElementById("uploadBtn").disabled = status.is_processing || status.is_paused;
 
                 let errorHtml = "";
@@ -440,24 +530,30 @@
                 }
 
                 if (status.is_processing) {
-                    document.getElementById("pauseBtn").innerText = "⏸️ Pause Processing";
+                    document.getElementById("pauseBtn").innerText = "⏸️ Pause";
                     msg.innerHTML = `<div class="progress-card"><b style="color:#d35400;">⏳ Processing PDF:</b> Page ${status.processed_pages} of ${status.total_pages} (${status.extracted_count} saved)...<br><small>${status.status_message}</small>${errorHtml}</div>`;
                 } else if (status.is_paused) {
                     msg.innerHTML = `<div class="progress-card" style="border-color:#f59e0b; color:#b45309;"><b>${status.status_message}</b>${errorHtml}</div>`;
                     clearInterval(statusInterval);
-                } else if (status.status_message.includes("DONE") || status.status_message.includes("Error")) {
+                } else if (status.status_message.includes("DONE") || status.status_message.includes("Error") || status.status_message.includes("Canceled")) {
                     msg.innerHTML = `<div class="progress-card" style="border-color:#10b981; background:#d1fae5; color:#047857;"><b>${status.status_message}</b>${errorHtml}</div>`;
                     document.getElementById("uploadBtn").disabled = false;
                     clearInterval(statusInterval);
                 }
-            } catch (e) {}
+            } catch (e) {
+                // Network Disconnect Recovery Logic
+                document.getElementById("upload-msg").innerHTML = `<div class="progress-card" style="border-color:#ef4444; background:#fee2e2; color:#b91c1c;"><b>⚠️ Network Error / Disconnected.</b><br>The backend may still be running, but we lost connection. Check your internet.</div>`;
+                document.getElementById("resumeBtn").style.display = "inline-flex"; 
+                document.getElementById("resumeBtn").innerText = "🔄 Reconnect & Resume";
+                clearInterval(statusInterval);
+            }
         }
 
         // --- 2. PROFILE ---
         async function fetchStudentProfile() {
             const regNo = document.getElementById("regNoSearch").value.trim();
             if (!regNo) return alert("Enter Registration Number.");
-            const res = await fetch(`/api/student/${regNo}`);
+            const res = await apiFetch(`/api/student/${regNo}`);
             if (!res.ok) return alert("Student not found.");
             const data = await res.json();
             
@@ -535,7 +631,7 @@
             document.getElementById("save-edit-btn-container").style.display = isEditMode ? "block" : "none";
             document.getElementById("addPaperRowBtn").style.display = isEditMode ? "inline-block" : "none";
             document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks";
-            fetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { renderPaperTable(data.papers||[], isEditMode); renderSemesterTable(data.semesters||[], isEditMode); });
+            apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { renderPaperTable(data.papers||[], isEditMode); renderSemesterTable(data.semesters||[], isEditMode); });
         }
 
         async function saveFullProfileEdit() {
@@ -555,7 +651,7 @@
                 passout_year: document.getElementById("edit-pass-year").value, cgpa: document.getElementById("edit-cgpa").value, grade: document.getElementById("edit-grade").value, remarks: document.getElementById("edit-remarks").value,
                 semesters: updatedSemesters, papers: updatedPapers
             };
-            await fetch(`/api/admin/update-profile-full/${currentLoadedRegNo}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            await apiFetch(`/api/admin/update-profile-full/${currentLoadedRegNo}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
             toggleEditMode(); fetchStudentProfile();
         }
 
@@ -563,7 +659,7 @@
         async function loadDocStatus() {
             const regNo = document.getElementById("docRegNo").value.trim();
             if (!regNo) return alert("Enter Registration No.");
-            const res = await fetch(`/api/student/${regNo}`);
+            const res = await apiFetch(`/api/student/${regNo}`);
             if(!res.ok) return alert("Student not found.");
             const data = await res.json();
             currentLoadedRegNo = data.student.reg_no;
@@ -582,7 +678,7 @@
             formData.append("marksheet_issue_date", document.getElementById("marksheetDate").value);
             formData.append("certificate_issue_date", document.getElementById("certDate").value);
             formData.append("issued_by", document.getElementById("issuedBySelect").value);
-            const res = await fetch(`/api/admin/update-issuance-detailed/${currentLoadedRegNo}`, { method: "POST", body: formData });
+            const res = await apiFetch(`/api/admin/update-issuance-detailed/${currentLoadedRegNo}`, { method: "POST", body: formData });
             if(res.ok) setElementText("doc-msg", "✅ Saved successfully!");
         }
 
@@ -590,7 +686,7 @@
         async function loadCareerStatus() {
             const regNo = document.getElementById("careerRegNo").value.trim();
             if (!regNo) return alert("Enter Registration No.");
-            const res = await fetch(`/api/student/${regNo}`);
+            const res = await apiFetch(`/api/student/${regNo}`);
             if(!res.ok) return alert("Student not found.");
             const data = await res.json();
             currentLoadedRegNo = data.student.reg_no;
@@ -605,7 +701,7 @@
             setElementText("career-msg", "");
         }
         async function saveCareerStatus() {
-            const origData = await fetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json());
+            const origData = await apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json());
             const formData = new FormData();
             formData.append("course", document.getElementById("s-course-edit").value);
             formData.append("marksheet_received", origData.student.marksheet_received);
@@ -614,12 +710,12 @@
             formData.append("details", document.getElementById("postGradDetails").value);
             const file = document.getElementById("proofFile").files[0];
             if (file) formData.append("proof_file", file);
-            const res = await fetch(`/api/admin/update-status/${currentLoadedRegNo}`, { method: "POST", body: formData });
+            const res = await apiFetch(`/api/admin/update-status/${currentLoadedRegNo}`, { method: "POST", body: formData });
             if(res.ok) { setElementText("career-msg", "✅ Career updated!"); loadCareerStatus(); }
         }
 
         // --- 6. DIRECTORY ---
-        async function fetchDirectory() { document.getElementById("directory-container").innerHTML = "<i>Loading...</i>"; allStudentsList = await fetch("/api/admin/all-students").then(r => r.json()); applyDirectoryFilters(); }
+        async function fetchDirectory() { document.getElementById("directory-container").innerHTML = "<i>Loading...</i>"; allStudentsList = await apiFetch("/api/admin/all-students").then(r => r.json()); applyDirectoryFilters(); }
         
         function applyDirectoryFilters() {
             const v = document.getElementById("directorySearchInput").value.trim().toLowerCase();
@@ -636,7 +732,6 @@
             const container = document.getElementById("directory-container");
             if (filtered.length === 0) return container.innerHTML = "<p style='text-align:center;'>No matching records.</p>";
             
-            // FULL RESTORE OF ALL COLUMNS
             let html = `<table><thead><tr>
                 <th>Reg No</th><th>Name</th><th>Course</th><th>Subject</th><th>Passout Year</th>
                 <th>CGPA</th><th>Grade</th><th>Marksheet Status</th><th>Certificate Status</th>
@@ -661,8 +756,8 @@
         }
 
         function clearDirectorySearch() { document.getElementById("directorySearchInput").value = ""; document.getElementById("filterCourse").value = "ALL"; document.getElementById("filterSemester").value = "ALL"; document.getElementById("filterSemYear").value = ""; applyDirectoryFilters(); }
-        async function deleteSingleStudent(regNo) { if(confirm(`Delete ${regNo}?`)) { await fetch(`/api/admin/student/${regNo}`, { method: "DELETE" }); fetchDirectory(); } }
-        async function clearAllData() { if(confirm("DELETE ALL records?")) { await fetch(`/api/admin/clear-all-students`, { method: "POST" }); fetchDirectory(); } }
+        async function deleteSingleStudent(regNo) { if(confirm(`Delete ${regNo}?`)) { await apiFetch(`/api/admin/student/${regNo}`, { method: "DELETE" }); fetchDirectory(); } }
+        async function clearAllData() { if(confirm("DELETE ALL records?")) { await apiFetch(`/api/admin/clear-all-students`, { method: "POST" }); fetchDirectory(); } }
         
         function downloadExcel() {
             if (allStudentsList.length === 0) return alert("No records.");
@@ -698,7 +793,7 @@
 
         // --- 5. ANALYTICS ---
         async function renderCharts() {
-            const res = await fetch("/api/admin/all-students"); const students = await res.json();
+            const res = await apiFetch("/api/admin/all-students"); const students = await res.json();
             const y = document.getElementById("statsYear").value;
             const filtered = students.filter(s => (y === "ALL") || (s.passout_year === y));
             
