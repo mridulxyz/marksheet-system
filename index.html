@@ -15,7 +15,7 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg-main); color: var(--text-dark); min-height: 100vh; display: flex; flex-direction: column; }
         
-        /* STATE OF THE ART LOGIN WINDOW */
+        /* LOGIN MODAL */
         .login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; z-index: 9999; }
         .login-box { background: white; padding: 40px 30px; border-radius: 16px; width: 100%; max-width: 420px; box-shadow: 0 25px 50px rgba(0,0,0,0.25); text-align: center; animation: popIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
         .login-logo { font-size: 48px; background: linear-gradient(135deg, #3b82f6, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
@@ -23,7 +23,7 @@
         .login-box p { color: var(--text-muted); font-size: 14px; margin-bottom: 25px; }
         .login-input { width: 100%; padding: 14px 16px; margin-bottom: 15px; border: 2px solid var(--border-color); border-radius: 10px; font-size: 15px; transition: all 0.2s; background: #f8fafc; }
         .login-input:focus { outline: none; border-color: var(--primary); background: white; box-shadow: 0 0 0 4px rgba(37,99,235,0.1); }
-        .login-btn { width: 100%; padding: 14px; font-size: 16px; background: linear-gradient(135deg, #2563eb, #06b6d4); border: none; color: white; border-radius: 10px; cursor: pointer; font-weight: bold; transition: transform 0.2s, box-shadow 0.2s; }
+        .login-btn { width: 100%; padding: 14px; font-size: 16px; background: linear-gradient(135deg, #2563eb, #06b6d4); border: none; color: white; border-radius: 10px; cursor: pointer; font-weight: bold; transition: transform 0.2s; }
         .login-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(37,99,235,0.2); }
         #login-error { color: var(--danger); font-size: 14px; font-weight: bold; margin-bottom: 15px; display: none; }
         @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -67,10 +67,11 @@
         .dropzone:hover { border-color: var(--primary); background: #eff6ff;}
         .dropzone-icon { font-size: 42px; color: var(--primary); margin-bottom: 10px; }
 
-        /* FIXED SEARCH BAR CSS */
-        .search-bar-container { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; width: 100%; }
-        .search-bar-container input { flex: 1; margin: 0; min-width: 250px; padding: 14px; font-size: 15px; border: 2px solid var(--primary); background: #ffffff; }
-        .search-bar-container button { flex-shrink: 0; width: auto !important; padding: 12px 24px; margin: 0; font-size: 15px;}
+        /* UNIFIED SEARCH BAR */
+        .search-bar-container { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; width: 100%; flex-wrap: wrap; background: #f1f5f9; padding: 12px; border-radius: 10px; border: 1px solid var(--border-color);}
+        .search-bar-container select { width: auto; flex: 1; min-width: 140px; margin: 0; border: 2px solid #cbd5e1; }
+        .search-bar-container input.reg-input { flex: 2; margin: 0; min-width: 200px; padding: 12px; border: 2px solid var(--primary); }
+        .search-bar-container button { flex-shrink: 0; width: auto !important; margin: 0; }
 
         .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid var(--border-color); margin-bottom: 25px; }
         .result-card { display: grid; grid-template-columns: 2fr 1fr 1fr; background: linear-gradient(135deg, #ecfdf5, #e0f2fe); border: 2px solid #a7f3d0; border-radius: 12px; padding: 20px 30px; margin-bottom: 25px; text-align: center; }
@@ -89,7 +90,7 @@
 
         .toolbar { display: flex; gap: 15px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px; background: #f8fafc; padding: 18px; border-radius: 10px; border: 1px solid var(--border-color); }
         .toolbar-group { display: flex; gap: 10px; align-items: center; flex: 1; min-width: 220px; }
-        .toolbar-group select, .toolbar-group input { margin: 0; }
+        .toolbar-group select, .toolbar-group input { margin: 0; width: auto; flex: 1; }
         
         .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-top: 25px; }
         .chart-box { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 25px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.03);}
@@ -138,18 +139,21 @@
         <!-- 1. UPLOAD MARKSHEETS -->
         <section id="upload" class="section active">
             <h2>Cloud OCR: Extract Full Marksheets (Admin Only)</h2>
-            <p class="section-desc">Upload Marksheets PDFs to extract detailed subjects & semester records into the database automatically.</p>
+            <p class="section-desc">Select the structural defaults for this upload batch. You can choose Curriculum and Course context.</p>
             
-            <label><b>Select Course for this Upload Batch:</b></label>
-            <select id="uploadCourseSelect">
-                <option value="AUTO">Auto-Detect Course from Marksheet PDF (Default)</option>
-                <option value="B.A. (Honours)">B.A. (Honours)</option>
-                <option value="B.A. (MDC)">B.A. (MDC)</option>
-                <option value="B.Sc. (Honours)">B.Sc. (Honours)</option>
-                <option value="B.Sc. (MDC)">B.Sc. (MDC)</option>
-                <option value="B.Com. (Honours)">B.Com. (Honours)</option>
-                <option value="B.Com. (MDC)">B.Com. (MDC)</option>
-            </select>
+            <div class="search-bar-container">
+                <select id="uploadCurr" class="curr-select" onchange="updateCourseOptions(this)">
+                    <option value="AUTO">Auto-Detect Curriculum</option>
+                    <option value="CCF">CCF</option>
+                    <option value="CBCS">CBCS</option>
+                </select>
+                <select id="uploadCourse" class="course-select" onchange="updateSubjectOptions(this)">
+                    <option value="AUTO">Auto-Detect Course</option>
+                </select>
+                <select id="uploadSubject" class="subject-select" style="display:none;">
+                    <option value="AUTO">Auto-Detect Subject</option>
+                </select>
+            </div>
 
             <div class="dropzone" id="pdfDropzone" onclick="document.getElementById('pdfFile').click();">
                 <div class="dropzone-icon">📄</div><div>Click to select or Drag & Drop PDF Marksheets here</div>
@@ -170,11 +174,13 @@
         <!-- 2. STUDENT PROFILE & EDIT -->
         <section id="student-search" class="section">
             <h2>Search Student Academic Profile</h2>
-            <p class="section-desc">Search by registration number to view or manually correct student academic records (Detailed Subjects & Semesters).</p>
             
-            <div class="search-bar-container">
-                <input type="text" id="regNoSearch" placeholder="Enter Registration Number (e.g. 424-1211-0240-19)">
-                <button onclick="fetchStudentProfile()" class="btn-green">🔍 Search Profile</button>
+            <div class="search-bar-container" id="search-bar-profile">
+                <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
+                <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
+                <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <input type="text" class="reg-input" id="regNoSearch" placeholder="Registration Number (e.g. 424-1211-0240-19)">
+                <button onclick="fetchStudentProfile()" class="btn-green">🔍 Search</button>
             </div>
             
             <div id="profile-area" style="display: none; margin-top: 25px;">
@@ -192,27 +198,24 @@
                 <div class="info-grid">
                     <div><b>Reg No:</b> <span id="s-reg"></span></div>
                     <div><b>Roll No:</b> <span id="s-roll"></span> <input type="text" id="edit-roll" style="display:none;"></div>
+                    <div><b>Curriculum:</b> <span id="s-curr"></span> <input type="text" id="edit-curr" style="display:none;" placeholder="CCF or CBCS"></div>
                     <div><b>Course:</b> <span id="s-course"></span> <input type="text" id="edit-course" style="display:none;"></div>
                     <div><b>Subject Code:</b> <span id="s-subject"></span> <input type="text" id="edit-subject" style="display:none;"></div>
                     <div><b>Passout Year:</b> <span id="s-pass-year"></span> <input type="text" id="edit-pass-year" style="display:none;"></div>
-                    <div><b>Remarks Statement:</b> <span id="s-remarks" style="color:var(--success); font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
+                    <div><b>Remarks:</b> <span id="s-remarks" style="color:var(--success); font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
                 </div>
 
                 <div style="margin-top: 30px;">
-                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Detailed Subject/Paper Marks Breakdown</h3>
+                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Detailed Subject/Paper Breakdown</h3>
                     <table>
-                        <thead><tr>
-                            <th>Course Code</th><th>Course Name</th><th>Component</th>
-                            <th>Full Marks</th><th>Marks Obtained</th><th>Credit</th>
-                            <th>Grade</th><th>Status</th>
-                        </tr></thead>
+                        <thead><tr><th>Course Code</th><th>Course Name</th><th>Component</th><th>Full Marks</th><th>Marks Obtained</th><th>Credit</th><th>Grade</th><th>Status</th></tr></thead>
                         <tbody id="paper-table-body"></tbody>
                     </table>
                     <button type="button" id="addPaperRowBtn" onclick="addPaperRow()" class="btn-orange" style="display:none; margin-top: 10px;">+ Add Subject Row</button>
                 </div>
 
                 <div style="margin-top: 40px;">
-                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Semester-wise Performance Summary (I - VIII)</h3>
+                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Semester-wise Summary</h3>
                     <table>
                         <thead><tr><th>Semester</th><th>Exam Year</th><th>Full Marks</th><th>Marks Obtained</th><th>Credit</th><th>SGPA</th></tr></thead>
                         <tbody id="sem-table-body"></tbody>
@@ -228,9 +231,11 @@
         <!-- 3. DOCUMENT ISSUANCE -->
         <section id="doc-issuance" class="section">
             <h2>Document Issuance Tracker</h2>
-            <p class="section-desc">Manage marksheets and degree certificates issued with exact dates and employee names.</p>
-            <div class="search-bar-container">
-                <input type="text" id="docRegNo" placeholder="Enter Registration Number">
+            <div class="search-bar-container" id="search-bar-doc">
+                <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
+                <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
+                <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <input type="text" class="reg-input" id="docRegNo" placeholder="Registration Number...">
                 <button onclick="loadDocStatus()" class="btn-green">Load Record</button>
             </div>
             <div id="doc-form-area" style="display: none;" class="card">
@@ -247,7 +252,7 @@
                         <input type="date" id="certDate">
                     </div>
                 </div>
-                <label style="margin-top:20px; display:block;"><b>Issued By (Employee Name):</b></label>
+                <label style="margin-top:20px; display:block;"><b>Issued By:</b></label>
                 <select id="issuedBySelect">
                     <option value="Roma Pore">Roma Pore</option>
                     <option value="Ruma Bhunia">Ruma Bhunia</option>
@@ -262,14 +267,15 @@
         <!-- 4. CAREER & PLACEMENTS -->
         <section id="career-status" class="section">
             <h2>Career & Post-Graduation Profile</h2>
-            <p class="section-desc">Track employment, higher study enrolments, and uploaded proof documents.</p>
-            <div class="search-bar-container">
-                <input type="text" id="careerRegNo" placeholder="Enter Registration Number">
+            <div class="search-bar-container" id="search-bar-career">
+                <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
+                <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
+                <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <input type="text" class="reg-input" id="careerRegNo" placeholder="Registration Number...">
                 <button onclick="loadCareerStatus()" class="btn-green">Load Record</button>
             </div>
             <div id="career-form-area" style="display: none;" class="card">
                 <h3 id="career-student-title" style="color:var(--primary);"></h3>
-                <input type="hidden" id="s-course-edit"> 
                 <label><b>Current Status:</b></label>
                 <select id="postGradStatus">
                     <option value="Unknown">Unknown</option>
@@ -292,19 +298,22 @@
         <!-- 5. RESULT STATISTICS -->
         <section id="stats" class="section">
             <h2>Overall Result Statistics & Analytics</h2>
-            <div class="toolbar">
+            
+            <div class="toolbar" id="toolbar-stats">
                 <div class="toolbar-group">
-                    <label><b>Passout Year:</b></label>
-                    <select id="statsYear" onchange="renderCharts()" style="margin:0;">
-                        <option value="ALL">All Years</option>
-                        <option value="2022">2022</option>
-                        <option value="2023">2023</option>
-                        <option value="2024">2024</option>
-                        <option value="2025">2025</option>
-                        <option value="2026">2026</option>
-                    </select>
+                    <select class="curr-select" onchange="updateCourseOptions(this); renderCharts();"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
+                </div>
+                <div class="toolbar-group">
+                    <select class="course-select" onchange="updateSubjectOptions(this); renderCharts();"><option value="ALL">All Courses</option></select>
+                </div>
+                <div class="toolbar-group">
+                    <select class="subject-select" style="display:none;" onchange="renderCharts();"><option value="ALL">All Subjects</option></select>
+                </div>
+                <div class="toolbar-group">
+                    <select id="statsYear" onchange="renderCharts();"><option value="ALL">All Passout Years</option><option value="2022">2022</option><option value="2023">2023</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option></select>
                 </div>
             </div>
+
             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
                 <div class="chart-box"><div style="font-size:12px; font-weight:700;">TOTAL MATCHED</div><h3 id="statTotalStudents" style="font-size:24px; color:#2563eb;">0</h3></div>
                 <div class="chart-box"><div style="font-size:12px; font-weight:700;">PASSED</div><h3 id="statPassedStudents" style="font-size:24px; color:#10b981;">0</h3></div>
@@ -321,27 +330,18 @@
         <section id="directory" class="section">
             <h2>Student Master Directory</h2>
             
-            <div class="search-bar-container">
-                <input type="text" id="directorySearchInput" placeholder="🔍 Search by Registration No, Name...">
+            <div class="search-bar-container" id="search-bar-directory">
+                <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
+                <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
+                <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <input type="text" class="reg-input" id="directorySearchInput" placeholder="Name or Reg No...">
                 <button onclick="applyDirectoryFilters()" class="btn-green">Search</button>
                 <button onclick="clearDirectorySearch()" class="btn-gray">Clear</button>
             </div>
             
             <div class="toolbar">
                 <div class="toolbar-group">
-                    <label><b>Course:</b></label>
-                    <select id="filterCourse" onchange="applyDirectoryFilters()" style="margin:0;">
-                        <option value="ALL">All Courses</option>
-                        <option value="B.A. (Honours)">B.A. (Honours)</option>
-                        <option value="B.A. (MDC)">B.A. (MDC)</option>
-                        <option value="B.Sc. (Honours)">B.Sc. (Honours)</option>
-                        <option value="B.Sc. (MDC)">B.Sc. (MDC)</option>
-                        <option value="B.Com. (Honours)">B.Com. (Honours)</option>
-                        <option value="B.Com. (MDC)">B.Com. (MDC)</option>
-                    </select>
-                </div>
-                <div class="toolbar-group">
-                    <label><b>Search Specific Sem:</b></label>
+                    <label><b>Search Sem:</b></label>
                     <select id="filterSemester" onchange="applyDirectoryFilters()" style="margin:0;">
                         <option value="ALL">All Semesters</option>
                         <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
@@ -349,7 +349,7 @@
                     </select>
                 </div>
                 <div class="toolbar-group">
-                    <label><b>Sem Exam Year:</b></label>
+                    <label><b>Exam Year:</b></label>
                     <input type="text" id="filterSemYear" placeholder="e.g. 2024" oninput="applyDirectoryFilters()" style="margin:0; width:100px;">
                 </div>
                 <div style="display:flex; gap:10px;">
@@ -364,33 +364,13 @@
         <section id="repository" class="section">
             <h2>📂 PDF Marksheet Document Repository</h2>
             
-            <div class="search-bar-container">
-                <input type="text" id="repoSearchInput" placeholder="🔍 Search by Registration No...">
+            <div class="search-bar-container" id="search-bar-repo">
+                <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
+                <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
+                <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <input type="text" class="reg-input" id="repoSearchInput" placeholder="Reg No...">
                 <button onclick="applyRepoFilters()" class="btn-green">Search</button>
                 <button onclick="clearRepoSearch()" class="btn-gray">Clear</button>
-            </div>
-
-            <div class="toolbar">
-                <div class="toolbar-group">
-                    <label><b>Filter by Course:</b></label>
-                    <select id="repoCourse" onchange="applyRepoFilters()" style="margin:0;">
-                        <option value="ALL">All Courses</option>
-                        <option value="B.A. (Honours)">B.A. (Honours)</option>
-                        <option value="B.A. (MDC)">B.A. (MDC)</option>
-                        <option value="B.Sc. (Honours)">B.Sc. (Honours)</option>
-                        <option value="B.Sc. (MDC)">B.Sc. (MDC)</option>
-                        <option value="B.Com. (Honours)">B.Com. (Honours)</option>
-                        <option value="B.Com. (MDC)">B.Com. (MDC)</option>
-                    </select>
-                </div>
-                <div class="toolbar-group">
-                    <label><b>Filter by Sem:</b></label>
-                    <select id="repoSemester" onchange="applyRepoFilters()" style="margin:0;">
-                        <option value="ALL">All Semesters</option>
-                        <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
-                        <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
-                    </select>
-                </div>
             </div>
             
             <div id="repository-container"><i>Loading Repository...</i></div>
@@ -405,6 +385,90 @@
         let currentLoadedRegNo = "";
         let currentUserRole = "user";
         let gChart = null; let cChart = null;
+
+        // --- CASCADING CURRICULUM LOGIC ---
+        const CURRICULUM_DATA = {
+            "CCF": {
+                "BA (Hons)": ["BGNM", "EDCM", "ENGNM", "HISM", "PHIM", "PLSM", "SANM", "GEoM", "MTHM", "PHSM", "ZOOM", "CEMM", "CMSM"],
+                "BSc (Hons)": ["BGNM", "EDCM", "ENGNM", "HISM", "PHIM", "PLSM", "SANM", "GEoM", "MTHM", "PHSM", "ZOOM", "CEMM", "CMSM"],
+                "BCom (Hons)": ["BGNM", "EDCM", "ENGNM", "HISM", "PHIM", "PLSM", "SANM", "GEoM", "MTHM", "PHSM", "ZOOM", "CEMM", "CMSM"],
+                "BA (MDC)": [],
+                "BSc (MDC)": [],
+                "BCom (MDC)": []
+            },
+            "CBCS": {
+                "BA (Hons)": ["BNGA", "ENGA", "HISA", "PHIA", "PLSA", "SANA", "EDCA", "GEOA", "MTMA", "PHSA", "CEMA", "CMSA", "ZOOA"],
+                "BSc (Hons)": ["BNGA", "ENGA", "HISA", "PHIA", "PLSA", "SANA", "EDCA", "GEOA", "MTMA", "PHSA", "CEMA", "CMSA", "ZOOA"],
+                "BCom (Hons)": ["BNGA", "ENGA", "HISA", "PHIA", "PLSA", "SANA", "EDCA", "GEOA", "MTMA", "PHSA", "CEMA", "CMSA", "ZOOA"],
+                "BA General": [],
+                "BSc General": [],
+                "BCom General": []
+            }
+        };
+
+        function updateCourseOptions(currSelect) {
+            const container = currSelect.closest('.search-bar-container') || currSelect.closest('.toolbar');
+            const courseSelect = container.querySelector('.course-select');
+            const subjectSelect = container.querySelector('.subject-select');
+            
+            const curr = currSelect.value;
+            const defVal = (currSelect.id === "uploadCurr") ? "AUTO" : "ALL";
+            const defLabel = (currSelect.id === "uploadCurr") ? "Auto-Detect " : "All ";
+            
+            courseSelect.innerHTML = `<option value="${defVal}">${defLabel}Courses</option>`;
+            subjectSelect.innerHTML = `<option value="${defVal}">${defLabel}Subjects</option>`;
+            subjectSelect.style.display = 'none';
+
+            if (CURRICULUM_DATA[curr]) {
+                Object.keys(CURRICULUM_DATA[curr]).forEach(c => {
+                    courseSelect.innerHTML += `<option value="${c}">${c}</option>`;
+                });
+            }
+        }
+
+        function updateSubjectOptions(courseSelect) {
+            const container = courseSelect.closest('.search-bar-container') || courseSelect.closest('.toolbar');
+            const currSelect = container.querySelector('.curr-select');
+            const subjectSelect = container.querySelector('.subject-select');
+            
+            const curr = currSelect.value;
+            const course = courseSelect.value;
+            const defVal = (currSelect.id === "uploadCurr") ? "AUTO" : "ALL";
+            const defLabel = (currSelect.id === "uploadCurr") ? "Auto-Detect " : "All ";
+            
+            subjectSelect.innerHTML = `<option value="${defVal}">${defLabel}Subjects</option>`;
+            
+            if (curr && course && CURRICULUM_DATA[curr] && CURRICULUM_DATA[curr][course] && CURRICULUM_DATA[curr][course].length > 0) {
+                subjectSelect.style.display = 'inline-block';
+                CURRICULUM_DATA[curr][course].forEach(s => {
+                    subjectSelect.innerHTML += `<option value="${s}">${s}</option>`;
+                });
+            } else {
+                subjectSelect.style.display = 'none';
+            }
+        }
+
+        function syncDropdowns(containerId, curr, course, subject) {
+            const container = document.getElementById(containerId);
+            if(!container || !curr || curr === "Unknown") return;
+            
+            const currSel = container.querySelector('.curr-select');
+            if(currSel) {
+                currSel.value = curr;
+                updateCourseOptions(currSel);
+                setTimeout(() => {
+                    const cSel = container.querySelector('.course-select');
+                    if(cSel && course && course !== "Unknown Course") {
+                        cSel.value = course;
+                        updateSubjectOptions(cSel);
+                        setTimeout(() => {
+                            const sSel = container.querySelector('.subject-select');
+                            if(sSel && subject && subject !== "Unknown" && sSel.style.display !== 'none') sSel.value = subject;
+                        }, 50);
+                    }
+                }, 50);
+            }
+        }
 
         // Custom API fetch wrapper injecting the Auth Token
         function apiFetch(url, options = {}) {
@@ -463,10 +527,7 @@
             }
         }
 
-        function logout() { 
-            sessionStorage.removeItem('authToken');
-            window.location.reload(); 
-        }
+        function logout() { sessionStorage.removeItem('authToken'); window.location.reload(); }
         
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
@@ -489,7 +550,12 @@
             if (!file) return alert("Select a PDF first.");
             document.getElementById("uploadBtn").disabled = true;
             document.getElementById("upload-msg").innerHTML = "<div class='progress-card'>🚀 Starting upload...</div>";
-            const formData = new FormData(); formData.append("file", file); formData.append("selected_course", document.getElementById("uploadCourseSelect").value);
+            const formData = new FormData(); 
+            formData.append("file", file); 
+            formData.append("selected_curr", document.getElementById("uploadCurr").value);
+            formData.append("selected_course", document.getElementById("uploadCourse").value);
+            formData.append("selected_subject", document.getElementById("uploadSubject").value);
+            
             const res = await apiFetch(`/api/admin/upload-marksheet`, { method: "POST", body: formData });
             if (res.ok) { if(statusInterval) clearInterval(statusInterval); statusInterval = setInterval(pollUploadStatus, 2000); }
         }
@@ -508,7 +574,7 @@
             if(confirm("Are you sure you want to completely cancel processing this file?")) {
                 await apiFetch('/api/admin/cancel-upload', { method: "POST" });
                 if(statusInterval) clearInterval(statusInterval);
-                pollUploadStatus(); // Fetch final state
+                pollUploadStatus(); 
             }
         }
 
@@ -525,9 +591,7 @@
                 document.getElementById("uploadBtn").disabled = status.is_processing || status.is_paused;
 
                 let errorHtml = "";
-                if (status.errors && status.errors.length > 0) {
-                    errorHtml = `<div class="error-log">⚠️ Execution Errors:<br>${status.errors.join('<br>')}</div>`;
-                }
+                if (status.errors && status.errors.length > 0) errorHtml = `<div class="error-log">⚠️ Execution Errors:<br>${status.errors.join('<br>')}</div>`;
 
                 if (status.is_processing) {
                     document.getElementById("pauseBtn").innerText = "⏸️ Pause";
@@ -541,7 +605,6 @@
                     clearInterval(statusInterval);
                 }
             } catch (e) {
-                // Network Disconnect Recovery Logic
                 document.getElementById("upload-msg").innerHTML = `<div class="progress-card" style="border-color:#ef4444; background:#fee2e2; color:#b91c1c;"><b>⚠️ Network Error / Disconnected.</b><br>The backend may still be running, but we lost connection. Check your internet.</div>`;
                 document.getElementById("resumeBtn").style.display = "inline-flex"; 
                 document.getElementById("resumeBtn").innerText = "🔄 Reconnect & Resume";
@@ -560,8 +623,11 @@
             currentLoadedRegNo = data.student.reg_no;
             isEditMode = false;
             
+            syncDropdowns("search-bar-profile", data.student.curriculum, data.student.course, data.student.subject);
+            
             setElementText("s-name", data.student.name); setElementText("s-cgpa-banner", data.student.cgpa); setElementText("s-grade-banner", data.student.grade);
-            setElementText("s-reg", data.student.reg_no); setElementText("s-roll", data.student.roll_no); setElementText("s-course", data.student.course);
+            setElementText("s-reg", data.student.reg_no); setElementText("s-roll", data.student.roll_no); 
+            setElementText("s-curr", data.student.curriculum); setElementText("s-course", data.student.course);
             setElementText("s-subject", data.student.subject); setElementText("s-pass-year", data.student.passout_year); setElementText("s-remarks", data.student.remarks);
 
             renderPaperTable(data.papers || [], false);
@@ -571,22 +637,15 @@
         }
 
         function renderPaperTable(papers, editable) {
-            const tbody = document.getElementById("paper-table-body");
-            tbody.innerHTML = "";
-            if(papers.length === 0 && !editable) {
-                tbody.innerHTML = "<tr><td colspan='8'>No records found.</td></tr>"; return;
-            }
+            const tbody = document.getElementById("paper-table-body"); tbody.innerHTML = "";
+            if(papers.length === 0 && !editable) { tbody.innerHTML = "<tr><td colspan='8'>No records found.</td></tr>"; return; }
             papers.forEach(p => {
                 if (editable) {
                     tbody.innerHTML += `<tr>
-                        <td><input type="text" class="edit-p-code" value="${p.course_code}"></td>
-                        <td><input type="text" class="edit-p-name" value="${p.course_name}"></td>
-                        <td><input type="text" class="edit-p-comp" value="${p.component}"></td>
-                        <td><input type="text" class="edit-p-fm" value="${p.full_marks}"></td>
-                        <td><input type="text" class="edit-p-mo" value="${p.marks_obtained}"></td>
-                        <td><input type="text" class="edit-p-cred" value="${p.credit}"></td>
-                        <td><input type="text" class="edit-p-grade" value="${p.grade}"></td>
-                        <td><input type="text" class="edit-p-stat" value="${p.status}"></td>
+                        <td><input type="text" class="edit-p-code" value="${p.course_code}"></td><td><input type="text" class="edit-p-name" value="${p.course_name}"></td>
+                        <td><input type="text" class="edit-p-comp" value="${p.component}"></td><td><input type="text" class="edit-p-fm" value="${p.full_marks}"></td>
+                        <td><input type="text" class="edit-p-mo" value="${p.marks_obtained}"></td><td><input type="text" class="edit-p-cred" value="${p.credit}"></td>
+                        <td><input type="text" class="edit-p-grade" value="${p.grade}"></td><td><input type="text" class="edit-p-stat" value="${p.status}"></td>
                     </tr>`;
                 } else {
                     tbody.innerHTML += `<tr><td><b>${p.course_code}</b></td><td>${p.course_name}</td><td>${p.component}</td><td>${p.full_marks}</td><td>${p.marks_obtained}</td><td>${p.credit}</td><td><b>${p.grade}</b></td><td>${p.status}</td></tr>`;
@@ -623,7 +682,7 @@
 
         function toggleEditMode() {
             isEditMode = !isEditMode;
-            ["name", "cgpa", "grade", "roll", "course", "subject", "remarks", "pass-year"].forEach(f => {
+            ["name", "cgpa", "grade", "roll", "curr", "course", "subject", "remarks", "pass-year"].forEach(f => {
                 if(isEditMode) document.getElementById("edit-"+f).value = document.getElementById("s-"+(f==='cgpa'||f==='grade'?f+'-banner':f)).innerText;
                 document.getElementById("edit-"+f).style.display = isEditMode ? "inline-block" : "none";
                 document.getElementById("s-"+(f==='cgpa'||f==='grade'?f+'-banner':f)).style.display = isEditMode ? "none" : "inline-block";
@@ -647,7 +706,8 @@
                 }
             });
             const payload = {
-                name: document.getElementById("edit-name").value, roll_no: document.getElementById("edit-roll").value, course: document.getElementById("edit-course").value, subject: document.getElementById("edit-subject").value,
+                name: document.getElementById("edit-name").value, roll_no: document.getElementById("edit-roll").value, 
+                curriculum: document.getElementById("edit-curr").value, course: document.getElementById("edit-course").value, subject: document.getElementById("edit-subject").value,
                 passout_year: document.getElementById("edit-pass-year").value, cgpa: document.getElementById("edit-cgpa").value, grade: document.getElementById("edit-grade").value, remarks: document.getElementById("edit-remarks").value,
                 semesters: updatedSemesters, papers: updatedPapers
             };
@@ -663,6 +723,8 @@
             if(!res.ok) return alert("Student not found.");
             const data = await res.json();
             currentLoadedRegNo = data.student.reg_no;
+            syncDropdowns("search-bar-doc", data.student.curriculum, data.student.course, data.student.subject);
+            
             setElementText("doc-student-title", `${data.student.name} (${data.student.reg_no})`);
             document.getElementById("marksheetCb").checked = data.student.marksheet_received;
             document.getElementById("certCb").checked = data.student.certificate_received;
@@ -690,8 +752,9 @@
             if(!res.ok) return alert("Student not found.");
             const data = await res.json();
             currentLoadedRegNo = data.student.reg_no;
+            syncDropdowns("search-bar-career", data.student.curriculum, data.student.course, data.student.subject);
+            
             setElementText("career-student-title", `${data.student.name} (${data.student.reg_no})`);
-            setElementValue("s-course-edit", data.student.course);
             setElementValue("postGradStatus", data.student.status);
             setElementValue("postGradDetails", data.student.details);
             const proofCont = document.getElementById("current-proof-link");
@@ -703,7 +766,6 @@
         async function saveCareerStatus() {
             const origData = await apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json());
             const formData = new FormData();
-            formData.append("course", document.getElementById("s-course-edit").value);
             formData.append("marksheet_received", origData.student.marksheet_received);
             formData.append("certificate_received", origData.student.certificate_received);
             formData.append("status", document.getElementById("postGradStatus").value);
@@ -718,22 +780,27 @@
         async function fetchDirectory() { document.getElementById("directory-container").innerHTML = "<i>Loading...</i>"; allStudentsList = await apiFetch("/api/admin/all-students").then(r => r.json()); applyDirectoryFilters(); }
         
         function applyDirectoryFilters() {
-            const v = document.getElementById("directorySearchInput").value.trim().toLowerCase();
-            const c = document.getElementById("filterCourse").value;
+            const container = document.getElementById("search-bar-directory");
+            const v = container.querySelector(".reg-input").value.trim().toLowerCase();
+            const curr = container.querySelector(".curr-select").value;
+            const course = container.querySelector(".course-select").value;
+            const subj = container.querySelector(".subject-select").value;
             const s = document.getElementById("filterSemester").value;
             const y = document.getElementById("filterSemYear").value.trim();
 
             const filtered = allStudentsList.filter(st => {
                 const mSearch = (v==="") || (st.registration_no&&st.registration_no.toLowerCase().includes(v)) || (st.name&&st.name.toLowerCase().includes(v));
-                const mCourse = (c==="ALL") || (st.course&&st.course.includes(c));
+                const mCurr = (curr==="ALL") || (st.curriculum === curr);
+                const mCourse = (course==="ALL") || (st.course === course);
+                const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
                 let mSem = true; if (s!=="ALL" || y!=="") { mSem=false; st.semesters.forEach(r => { if((s==="ALL"||r.semester===s) && (y===""||r.year===y)) mSem=true; }); }
-                return mSearch && mCourse && mSem;
+                return mSearch && mCurr && mCourse && mSubj && mSem;
             });
-            const container = document.getElementById("directory-container");
-            if (filtered.length === 0) return container.innerHTML = "<p style='text-align:center;'>No matching records.</p>";
+            const dirCont = document.getElementById("directory-container");
+            if (filtered.length === 0) return dirCont.innerHTML = "<p style='text-align:center;'>No matching records.</p>";
             
             let html = `<table><thead><tr>
-                <th>Reg No</th><th>Name</th><th>Course</th><th>Subject</th><th>Passout Year</th>
+                <th>Reg No</th><th>Name</th><th>Curriculum</th><th>Course</th><th>Subject</th><th>Passout</th>
                 <th>CGPA</th><th>Grade</th><th>Marksheet Status</th><th>Certificate Status</th>
                 <th>Career Status & Proof</th>${currentUserRole==='admin'?'<th>Action</th>':''}
             </tr></thead><tbody>`;
@@ -745,57 +812,87 @@
                 let detailsText = st.post_grad_details ? `<br><small>${st.post_grad_details}</small>` : '';
 
                 html += `<tr>
-                    <td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.course}</td><td><b>${st.subject||'BNGA'}</b></td><td>${st.passout_year}</td>
+                    <td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}</td><td>${st.course}</td><td><b>${st.subject}</b></td><td>${st.passout_year}</td>
                     <td><b>${st.overall_cgpa}</b></td><td><b>${st.overall_grade}</b></td>
                     <td>${msStatus}</td><td>${certStatus}</td>
                     <td><b>${st.post_grad_status||'Unknown'}</b>${detailsText}${proofLink}</td>
                     ${currentUserRole==='admin'?`<td><button onclick="deleteSingleStudent('${st.registration_no}')" class="btn-sm-red">Delete</button></td>`:''}
                 </tr>`; 
             });
-            container.innerHTML = html + `</tbody></table>`;
+            dirCont.innerHTML = html + `</tbody></table>`;
         }
 
-        function clearDirectorySearch() { document.getElementById("directorySearchInput").value = ""; document.getElementById("filterCourse").value = "ALL"; document.getElementById("filterSemester").value = "ALL"; document.getElementById("filterSemYear").value = ""; applyDirectoryFilters(); }
+        function clearDirectorySearch() { 
+            const container = document.getElementById("search-bar-directory");
+            container.querySelector(".reg-input").value = ""; 
+            container.querySelector(".curr-select").value = "ALL";
+            updateCourseOptions(container.querySelector(".curr-select"));
+            document.getElementById("filterSemester").value = "ALL"; 
+            document.getElementById("filterSemYear").value = ""; 
+            applyDirectoryFilters(); 
+        }
+
         async function deleteSingleStudent(regNo) { if(confirm(`Delete ${regNo}?`)) { await apiFetch(`/api/admin/student/${regNo}`, { method: "DELETE" }); fetchDirectory(); } }
         async function clearAllData() { if(confirm("DELETE ALL records?")) { await apiFetch(`/api/admin/clear-all-students`, { method: "POST" }); fetchDirectory(); } }
         
         function downloadExcel() {
             if (allStudentsList.length === 0) return alert("No records.");
-            let csv = "Registration No,Name,Roll No,Course,Subject,Admission Year,Passout Year,CGPA,Grade,Remarks,Marksheet Status,Marksheet Date,Certificate Status,Certificate Date,Issued By,Career Status,Career Details\n";
-            allStudentsList.forEach(s => { csv += `"${s.registration_no}","${s.name}","${s.roll_no}","${s.course}","${s.subject}","${s.admission_year}","${s.passout_year}","${s.overall_cgpa}","${s.overall_grade}","${s.remarks}","${s.marksheet_received?'ISSUED':'PENDING'}","${s.marksheet_issue_date||''}","${s.certificate_received?'ISSUED':'PENDING'}","${s.certificate_issue_date||''}","${s.issued_by||''}","${s.post_grad_status||'Unknown'}","${s.post_grad_details||''}"\n`; });
+            let csv = "Registration No,Name,Roll No,Curriculum,Course,Subject,Admission Year,Passout Year,CGPA,Grade,Remarks,Marksheet Status,Marksheet Date,Certificate Status,Certificate Date,Issued By,Career Status,Career Details\n";
+            allStudentsList.forEach(s => { csv += `"${s.registration_no}","${s.name}","${s.roll_no}","${s.curriculum||'Unknown'}","${s.course}","${s.subject}","${s.admission_year}","${s.passout_year}","${s.overall_cgpa}","${s.overall_grade}","${s.remarks}","${s.marksheet_received?'ISSUED':'PENDING'}","${s.marksheet_issue_date||''}","${s.certificate_received?'ISSUED':'PENDING'}","${s.certificate_issue_date||''}","${s.issued_by||''}","${s.post_grad_status||'Unknown'}","${s.post_grad_details||''}"\n`; });
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `Directory.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a);
         }
 
-        // --- 7. REPOSITORY (With Course/Semester Search) ---
+        // --- 7. REPOSITORY ---
         function applyRepoFilters() {
-            const v = document.getElementById("repoSearchInput").value.trim().toLowerCase();
-            const c = document.getElementById("repoCourse").value;
-            const s = document.getElementById("repoSemester").value;
+            const container = document.getElementById("search-bar-repo");
+            const v = container.querySelector(".reg-input").value.trim().toLowerCase();
+            const curr = container.querySelector(".curr-select").value;
+            const course = container.querySelector(".course-select").value;
+            const subj = container.querySelector(".subject-select").value;
 
             const list = allStudentsList.filter(st => {
                 const mSearch = (v==="") || (st.registration_no&&st.registration_no.toLowerCase().includes(v));
-                const mCourse = (c==="ALL") || (st.course&&st.course.includes(c));
-                let mSem = true; if (s!=="ALL") { mSem=false; st.semesters.forEach(r => { if(r.semester===s) mSem=true; }); }
-                return mSearch && mCourse && mSem;
+                const mCurr = (curr==="ALL") || (st.curriculum === curr);
+                const mCourse = (course==="ALL") || (st.course === course);
+                const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
+                return mSearch && mCurr && mCourse && mSubj;
             });
             
-            const container = document.getElementById("repository-container");
-            if (list.length === 0) return container.innerHTML = "<p style='text-align:center;'>No matches.</p>";
-            let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Course</th><th>Subject</th><th>Passout Year</th><th>Action</th></tr></thead><tbody>`;
+            const repoCont = document.getElementById("repository-container");
+            if (list.length === 0) return repoCont.innerHTML = "<p style='text-align:center;'>No matches.</p>";
+            let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Curriculum</th><th>Course</th><th>Subject</th><th>Passout Year</th><th>Action</th></tr></thead><tbody>`;
             list.forEach(st => { 
                 let pdf = st.pdf_document_path ? `<a href="/${st.pdf_document_path}" target="_blank"><button class="btn-green">📄 View PDF</button></a>` : "Not Stored";
-                html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.course}</td><td><b>${st.subject}</b></td><td>${st.passout_year}</td><td>${pdf}</td></tr>`; 
+                html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}</td><td>${st.course}</td><td><b>${st.subject}</b></td><td>${st.passout_year}</td><td>${pdf}</td></tr>`; 
             });
-            container.innerHTML = html + `</tbody></table>`;
+            repoCont.innerHTML = html + `</tbody></table>`;
         }
-        function clearRepoSearch() { document.getElementById("repoSearchInput").value = ""; document.getElementById("repoCourse").value = "ALL"; document.getElementById("repoSemester").value = "ALL"; applyRepoFilters(); }
+        function clearRepoSearch() { 
+            const container = document.getElementById("search-bar-repo");
+            container.querySelector(".reg-input").value = ""; 
+            container.querySelector(".curr-select").value = "ALL";
+            updateCourseOptions(container.querySelector(".curr-select"));
+            applyRepoFilters(); 
+        }
         async function fetchPdfRepository() { await fetchDirectory(); applyRepoFilters(); }
 
         // --- 5. ANALYTICS ---
         async function renderCharts() {
             const res = await apiFetch("/api/admin/all-students"); const students = await res.json();
+            const container = document.getElementById("toolbar-stats");
+            
+            const curr = container.querySelector(".curr-select").value;
+            const course = container.querySelector(".course-select").value;
+            const subj = container.querySelector(".subject-select").value;
             const y = document.getElementById("statsYear").value;
-            const filtered = students.filter(s => (y === "ALL") || (s.passout_year === y));
+            
+            const filtered = students.filter(st => {
+                const mCurr = (curr==="ALL") || (st.curriculum === curr);
+                const mCourse = (course==="ALL") || (st.course === course);
+                const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
+                const mYear = (y === "ALL") || (st.passout_year === y);
+                return mCurr && mCourse && mSubj && mYear;
+            });
             
             let passed = 0; let failed = 0; let gCounts = {}; let cCounts = {};
             filtered.forEach(s => {
