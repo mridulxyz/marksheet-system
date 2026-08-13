@@ -179,13 +179,18 @@
                 <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
                 <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
                 <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <select class="sem-select">
+                    <option value="ALL">All Semesters</option>
+                    <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
+                    <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
+                </select>
                 <input type="text" class="reg-input" id="regNoSearch" placeholder="Registration Number (e.g. 424-1211-0240-19)">
                 <button onclick="fetchStudentProfile()" class="btn-green">🔍 Search</button>
             </div>
             
             <div id="profile-area" style="display: none; margin-top: 25px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h3>Student Overview</h3>
+                    <h3 id="profile-student-title">Student Overview</h3>
                     <button id="toggleEditBtn" onclick="toggleEditMode()" class="btn-orange">✏️ Edit Profile & Marks</button>
                 </div>
 
@@ -235,6 +240,11 @@
                 <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
                 <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
                 <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <select class="sem-select">
+                    <option value="ALL">All Semesters</option>
+                    <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
+                    <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
+                </select>
                 <input type="text" class="reg-input" id="docRegNo" placeholder="Registration Number...">
                 <button onclick="loadDocStatus()" class="btn-green">Load Record</button>
             </div>
@@ -271,6 +281,11 @@
                 <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
                 <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
                 <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <select class="sem-select">
+                    <option value="ALL">All Semesters</option>
+                    <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
+                    <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
+                </select>
                 <input type="text" class="reg-input" id="careerRegNo" placeholder="Registration Number...">
                 <button onclick="loadCareerStatus()" class="btn-green">Load Record</button>
             </div>
@@ -310,6 +325,13 @@
                     <select class="subject-select" style="display:none;" onchange="renderCharts();"><option value="ALL">All Subjects</option></select>
                 </div>
                 <div class="toolbar-group">
+                    <select class="sem-select" onchange="renderCharts();">
+                        <option value="ALL">All Semesters</option>
+                        <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
+                        <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
+                    </select>
+                </div>
+                <div class="toolbar-group">
                     <select id="statsYear" onchange="renderCharts();"><option value="ALL">All Passout Years</option><option value="2022">2022</option><option value="2023">2023</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option></select>
                 </div>
             </div>
@@ -334,20 +356,17 @@
                 <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
                 <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
                 <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <select class="sem-select">
+                    <option value="ALL">All Semesters</option>
+                    <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
+                    <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
+                </select>
                 <input type="text" class="reg-input" id="directorySearchInput" placeholder="Name or Reg No...">
                 <button onclick="applyDirectoryFilters()" class="btn-green">Search</button>
                 <button onclick="clearDirectorySearch()" class="btn-gray">Clear</button>
             </div>
             
             <div class="toolbar">
-                <div class="toolbar-group">
-                    <label><b>Search Sem:</b></label>
-                    <select id="filterSemester" onchange="applyDirectoryFilters()" style="margin:0;">
-                        <option value="ALL">All Semesters</option>
-                        <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
-                        <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
-                    </select>
-                </div>
                 <div class="toolbar-group">
                     <label><b>Exam Year:</b></label>
                     <input type="text" id="filterSemYear" placeholder="e.g. 2024" oninput="applyDirectoryFilters()" style="margin:0; width:100px;">
@@ -368,6 +387,11 @@
                 <select class="curr-select" onchange="updateCourseOptions(this)"><option value="ALL">All Curriculums</option><option value="CCF">CCF</option><option value="CBCS">CBCS</option></select>
                 <select class="course-select" onchange="updateSubjectOptions(this)"><option value="ALL">All Courses</option></select>
                 <select class="subject-select" style="display:none;"><option value="ALL">All Subjects</option></select>
+                <select class="sem-select">
+                    <option value="ALL">All Semesters</option>
+                    <option value="I">Semester I</option><option value="II">Semester II</option><option value="III">Semester III</option><option value="IV">Semester IV</option>
+                    <option value="V">Semester V</option><option value="VI">Semester VI</option><option value="VII">Semester VII</option><option value="VIII">Semester VIII</option>
+                </select>
                 <input type="text" class="reg-input" id="repoSearchInput" placeholder="Reg No...">
                 <button onclick="applyRepoFilters()" class="btn-green">Search</button>
                 <button onclick="clearRepoSearch()" class="btn-gray">Clear</button>
@@ -614,7 +638,10 @@
 
         // --- 2. PROFILE ---
         async function fetchStudentProfile() {
-            const regNo = document.getElementById("regNoSearch").value.trim();
+            const container = document.getElementById("search-bar-profile");
+            const regNo = container.querySelector(".reg-input").value.trim();
+            const highlightSem = container.querySelector(".sem-select").value;
+
             if (!regNo) return alert("Enter Registration Number.");
             const res = await apiFetch(`/api/student/${regNo}`);
             if (!res.ok) return alert("Student not found.");
@@ -625,13 +652,16 @@
             
             syncDropdowns("search-bar-profile", data.student.curriculum, data.student.course, data.student.subject);
             
+            const semText = highlightSem !== "ALL" ? ` (Viewing Semester ${highlightSem})` : "";
+            setElementText("profile-student-title", `Student Overview${semText}`);
+            
             setElementText("s-name", data.student.name); setElementText("s-cgpa-banner", data.student.cgpa); setElementText("s-grade-banner", data.student.grade);
             setElementText("s-reg", data.student.reg_no); setElementText("s-roll", data.student.roll_no); 
             setElementText("s-curr", data.student.curriculum); setElementText("s-course", data.student.course);
             setElementText("s-subject", data.student.subject); setElementText("s-pass-year", data.student.passout_year); setElementText("s-remarks", data.student.remarks);
 
             renderPaperTable(data.papers || [], false);
-            renderSemesterTable(data.semesters || [], false);
+            renderSemesterTable(data.semesters || [], false, highlightSem);
             document.getElementById("profile-area").style.display = "block";
             document.getElementById("addPaperRowBtn").style.display = "none";
         }
@@ -661,12 +691,14 @@
             </tr>`;
         }
 
-        function renderSemesterTable(semesters, editable) {
+        function renderSemesterTable(semesters, editable, highlightSem = "ALL") {
             const tbody = document.getElementById("sem-table-body"); tbody.innerHTML = "";
             ["I","II","III","IV","V","VI","VII","VIII"].forEach(sem => {
                 let s = semesters.find(i => i.semester === sem) || { semester: sem, year: "", full_marks: "", marks_obtained: "", credit: "", sgpa: "" };
+                let trStyle = (sem === highlightSem) ? "background-color: #e0f2fe; border: 2px solid #3b82f6;" : "";
+                
                 if (editable) {
-                    tbody.innerHTML += `<tr>
+                    tbody.innerHTML += `<tr style="${trStyle}">
                         <td><b>${sem}</b><input type="hidden" class="edit-sem-num" value="${sem}"></td>
                         <td><input type="text" class="edit-sem-year" value="${s.year}"></td>
                         <td><input type="text" class="edit-sem-fm" value="${s.full_marks}"></td>
@@ -675,7 +707,7 @@
                         <td><input type="text" class="edit-sem-sgpa" value="${s.sgpa}"></td>
                     </tr>`;
                 } else {
-                    tbody.innerHTML += `<tr><td><b>${sem}</b></td><td>${s.year}</td><td>${s.full_marks}</td><td>${s.marks_obtained}</td><td>${s.credit}</td><td><b>${s.sgpa}</b></td></tr>`;
+                    tbody.innerHTML += `<tr style="${trStyle}"><td><b>${sem}</b></td><td>${s.year}</td><td>${s.full_marks}</td><td>${s.marks_obtained}</td><td>${s.credit}</td><td><b>${s.sgpa}</b></td></tr>`;
                 }
             });
         }
@@ -690,7 +722,9 @@
             document.getElementById("save-edit-btn-container").style.display = isEditMode ? "block" : "none";
             document.getElementById("addPaperRowBtn").style.display = isEditMode ? "inline-block" : "none";
             document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks";
-            apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { renderPaperTable(data.papers||[], isEditMode); renderSemesterTable(data.semesters||[], isEditMode); });
+            
+            const highlightSem = document.querySelector("#search-bar-profile .sem-select").value;
+            apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { renderPaperTable(data.papers||[], isEditMode); renderSemesterTable(data.semesters||[], isEditMode, highlightSem); });
         }
 
         async function saveFullProfileEdit() {
@@ -717,15 +751,20 @@
 
         // --- 3. ISSUANCE ---
         async function loadDocStatus() {
-            const regNo = document.getElementById("docRegNo").value.trim();
+            const container = document.getElementById("search-bar-doc");
+            const regNo = container.querySelector(".reg-input").value.trim();
+            const sem = container.querySelector(".sem-select").value;
+
             if (!regNo) return alert("Enter Registration No.");
             const res = await apiFetch(`/api/student/${regNo}`);
             if(!res.ok) return alert("Student not found.");
             const data = await res.json();
             currentLoadedRegNo = data.student.reg_no;
-            syncDropdowns("search-bar-doc", data.student.curriculum, data.student.course, data.student.subject);
             
-            setElementText("doc-student-title", `${data.student.name} (${data.student.reg_no})`);
+            syncDropdowns("search-bar-doc", data.student.curriculum, data.student.course, data.student.subject);
+            const semText = sem !== "ALL" ? ` (Semester ${sem})` : "";
+            
+            setElementText("doc-student-title", `${data.student.name} (${data.student.reg_no})${semText}`);
             document.getElementById("marksheetCb").checked = data.student.marksheet_received;
             document.getElementById("certCb").checked = data.student.certificate_received;
             setElementValue("marksheetDate", data.student.marksheet_issue_date);
@@ -746,15 +785,20 @@
 
         // --- 4. CAREER ---
         async function loadCareerStatus() {
-            const regNo = document.getElementById("careerRegNo").value.trim();
+            const container = document.getElementById("search-bar-career");
+            const regNo = container.querySelector(".reg-input").value.trim();
+            const sem = container.querySelector(".sem-select").value;
+
             if (!regNo) return alert("Enter Registration No.");
             const res = await apiFetch(`/api/student/${regNo}`);
             if(!res.ok) return alert("Student not found.");
             const data = await res.json();
             currentLoadedRegNo = data.student.reg_no;
-            syncDropdowns("search-bar-career", data.student.curriculum, data.student.course, data.student.subject);
             
-            setElementText("career-student-title", `${data.student.name} (${data.student.reg_no})`);
+            syncDropdowns("search-bar-career", data.student.curriculum, data.student.course, data.student.subject);
+            const semText = sem !== "ALL" ? ` (Semester ${sem})` : "";
+            
+            setElementText("career-student-title", `${data.student.name} (${data.student.reg_no})${semText}`);
             setElementValue("postGradStatus", data.student.status);
             setElementValue("postGradDetails", data.student.details);
             const proofCont = document.getElementById("current-proof-link");
@@ -785,7 +829,7 @@
             const curr = container.querySelector(".curr-select").value;
             const course = container.querySelector(".course-select").value;
             const subj = container.querySelector(".subject-select").value;
-            const s = document.getElementById("filterSemester").value;
+            const sem = container.querySelector(".sem-select").value;
             const y = document.getElementById("filterSemYear").value.trim();
 
             const filtered = allStudentsList.filter(st => {
@@ -793,7 +837,7 @@
                 const mCurr = (curr==="ALL") || (st.curriculum === curr);
                 const mCourse = (course==="ALL") || (st.course === course);
                 const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
-                let mSem = true; if (s!=="ALL" || y!=="") { mSem=false; st.semesters.forEach(r => { if((s==="ALL"||r.semester===s) && (y===""||r.year===y)) mSem=true; }); }
+                let mSem = true; if (sem!=="ALL" || y!=="") { mSem=false; st.semesters.forEach(r => { if((sem==="ALL"||r.semester===sem) && (y===""||r.year===y)) mSem=true; }); }
                 return mSearch && mCurr && mCourse && mSubj && mSem;
             });
             const dirCont = document.getElementById("directory-container");
@@ -827,7 +871,7 @@
             container.querySelector(".reg-input").value = ""; 
             container.querySelector(".curr-select").value = "ALL";
             updateCourseOptions(container.querySelector(".curr-select"));
-            document.getElementById("filterSemester").value = "ALL"; 
+            container.querySelector(".sem-select").value = "ALL"; 
             document.getElementById("filterSemYear").value = ""; 
             applyDirectoryFilters(); 
         }
@@ -849,13 +893,15 @@
             const curr = container.querySelector(".curr-select").value;
             const course = container.querySelector(".course-select").value;
             const subj = container.querySelector(".subject-select").value;
+            const sem = container.querySelector(".sem-select").value;
 
             const list = allStudentsList.filter(st => {
                 const mSearch = (v==="") || (st.registration_no&&st.registration_no.toLowerCase().includes(v));
                 const mCurr = (curr==="ALL") || (st.curriculum === curr);
                 const mCourse = (course==="ALL") || (st.course === course);
                 const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
-                return mSearch && mCurr && mCourse && mSubj;
+                let mSem = true; if (sem!=="ALL") { mSem=false; st.semesters.forEach(r => { if(r.semester===sem) mSem=true; }); }
+                return mSearch && mCurr && mCourse && mSubj && mSem;
             });
             
             const repoCont = document.getElementById("repository-container");
@@ -872,6 +918,7 @@
             container.querySelector(".reg-input").value = ""; 
             container.querySelector(".curr-select").value = "ALL";
             updateCourseOptions(container.querySelector(".curr-select"));
+            container.querySelector(".sem-select").value = "ALL";
             applyRepoFilters(); 
         }
         async function fetchPdfRepository() { await fetchDirectory(); applyRepoFilters(); }
@@ -884,6 +931,7 @@
             const curr = container.querySelector(".curr-select").value;
             const course = container.querySelector(".course-select").value;
             const subj = container.querySelector(".subject-select").value;
+            const sem = container.querySelector(".sem-select").value;
             const y = document.getElementById("statsYear").value;
             
             const filtered = students.filter(st => {
@@ -891,7 +939,8 @@
                 const mCourse = (course==="ALL") || (st.course === course);
                 const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
                 const mYear = (y === "ALL") || (st.passout_year === y);
-                return mCurr && mCourse && mSubj && mYear;
+                let mSem = true; if (sem!=="ALL") { mSem=false; st.semesters.forEach(r => { if(r.semester===sem) mSem=true; }); }
+                return mCurr && mCourse && mSubj && mYear && mSem;
             });
             
             let passed = 0; let failed = 0; let gCounts = {}; let cCounts = {};
