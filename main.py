@@ -224,6 +224,9 @@ def parse_marksheet_with_gemini_vision(page):
                 if txt.startswith("```"):
                     txt = txt.strip("`").strip()
                     if txt.lower().startswith("json"): txt = txt[4:].strip()
+                    # FORCE FREE MEMORY
+                    image.close()
+                    pix = None
                 
                 return json.loads(txt)
                 
