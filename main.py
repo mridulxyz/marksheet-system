@@ -389,15 +389,25 @@ def get_db():
 @app.on_event("startup")
 def startup_db_setup():
     Base.metadata.create_all(bind=engine)
-    with engine.begin() as conn:
-        if "sqlite" in DATABASE_URL:
-            tables = [r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()]
-            if "paper_records" not in tables:
-                conn.execute(text("CREATE TABLE paper_records (id INTEGER PRIMARY KEY AUTOINCREMENT, registration_no VARCHAR, course_code VARCHAR, course_name VARCHAR, component VARCHAR, full_marks VARCHAR, marks_obtained VARCHAR, credit VARCHAR, grade VARCHAR, status VARCHAR)"))
-            # Safely add curriculum column if missing
-            columns = [r[1] for r in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
-            if "curriculum" not in columns:
-                conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
+    try:
+        with engine.begin() as conn:
+            # 1. Handle SQLite database upgrades
+            if "sqlite" in DATABASE_URL:
+                tables = [r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()]
+                if "paper_records" not in tables:
+                    conn.execute(text("CREATE TABLE paper_records (id INTEGER PRIMARY KEY AUTOINCREMENT, registration_no VARCHAR, course_code VARCHAR, course_name VARCHAR, component VARCHAR, full_marks VARCHAR, marks_obtained VARCHAR, credit VARCHAR, grade VARCHAR, status VARCHAR)"))
+                columns = [r[1] for r in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
+                if "curriculum" not in columns:
+                    conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
+            
+            # 2. Handle PostgreSQL database upgrades
+            elif "postgresql" in DATABASE_URL or "postgres" in DATABASE_URL:
+                res = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='students' AND column_name='curriculum';")).fetchone()
+                if not res:
+                    conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
+    except Exception as e:
+        print(f"Database migration warning (safe to ignore if DB is up to date): {e}")
+
     load_upload_state()
 
 @app.get("/")
