@@ -208,17 +208,36 @@ def parse_marksheet_with_gemini_vision(page):
     }
     """
     
-    #models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.0-flash']
-    models_to_try = [
-        'gemini-3.5-flash',
-        'gemini-flash',            # Standard auto-routing alias
-        'gemini-flash-latest',     # Experimental auto-routing alias
-        'gemini-2.5-flash',        # Legacy fallback
-        'gemini-1.5-flash'         # Deep legacy fallback (Always works on older API keys)
-    ]
+    # ---------------------------------------------------------
+    # BULLETPROOF FIX: Dynamically fetch allowed models from Google
+    # This prevents 404 errors caused by region locks or deprecated models.
+    # ---------------------------------------------------------
+    fetched_models = []
+    try:
+        if ai_client_type == "legacy":
+            for m in legacy_genai.list_models():
+                if 'generateContent' in getattr(m, 'supported_generation_methods', []):
+                    fetched_models.append(m.name.replace('models/', ''))
+        elif ai_client_type == "new":
+            for m in ai_client.models.list():
+                fetched_models.append(m.name.replace('models/', ''))
+    except Exception as e:
+        print(f"Warning: Could not auto-fetch models: {e}")
+
+    # Filter and prioritize Flash models first, then Pro models
+    flash_models = sorted([m for m in fetched_models if 'flash' in m.lower()], reverse=True)
+    pro_models = sorted([m for m in fetched_models if 'pro' in m.lower()], reverse=True)
     
+    final_models_list = flash_models + pro_models
+    
+    # If the API key returns nothing (due to severe permission locks), use safe standard aliases
+    if not final_models_list:
+        final_models_list = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-flash', 'gemini-pro']
+
+    print(f"\n[DEBUG] Auto-Detected API Models. Using: {final_models_list[:3]}\n")
+
     last_exception = None
-    for model_name in models_to_try:
+    for model_name in final_models_list:
         for attempt in range(3): 
             try:
                 if ai_client_type == "legacy":
@@ -248,10 +267,17 @@ def parse_marksheet_with_gemini_vision(page):
             except Exception as e:
                 last_exception = e
                 err_str = str(e).lower()
-                if "404" in err_str or "not found" in err_str: break 
+                
+                # If model is not found, immediately break and try the next model in the dynamically generated list
+                if "404" in err_str or "not found" in err_str: 
+                    break 
+                
+                # If rate limited (quota exceeded), wait 20s and retry the SAME model
                 if "429" in err_str or "quota" in err_str or "exhausted" in err_str:
-                    time.sleep(30)
+                    time.sleep(20)
                     continue
+                
+                # For any other server error, wait briefly and retry
                 time.sleep(3)
                 continue
 
