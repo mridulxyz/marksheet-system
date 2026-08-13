@@ -202,7 +202,6 @@ def parse_marksheet_with_gemini_vision(page):
     }
     """
     
-    # 2026 Compatible Google Models
     models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.0-flash']
     
     last_exception = None
@@ -233,7 +232,7 @@ def parse_marksheet_with_gemini_vision(page):
                 err_str = str(e).lower()
                 if "404" in err_str or "not found" in err_str: break 
                 if "429" in err_str or "quota" in err_str or "exhausted" in err_str:
-                    time.sleep(35)
+                    time.sleep(30)
                     continue
                 time.sleep(3)
                 continue
@@ -264,7 +263,8 @@ def process_large_pdf_in_background():
                 
                 if ai_client_type:
                     try:
-                        if page_num > 0: time.sleep(4.5) 
+                        # SPEED BOOST: Drastically reduced sleep time. Relies on the 429 block above for safe throttling.
+                        if page_num > 0: time.sleep(0.3) 
                         data = parse_marksheet_with_gemini_vision(page)
                         reg_no = data.get("registration_no")
                         if not reg_no or reg_no == "null":
@@ -277,8 +277,8 @@ def process_large_pdf_in_background():
                         if "429" in ai_error_msg.lower() or "exhausted" in ai_error_msg.lower() or "quota" in ai_error_msg.lower():
                             bg_upload_status["is_processing"] = False
                             bg_upload_status["is_paused"] = True
-                            bg_upload_status["status_message"] = f"⏸️ AUTO-PAUSED: Google API Quota Exhausted on page {page_num+1}."
-                            bg_upload_status["errors"].append(f"Auto-Paused at Page {page_num+1} due to API Limit.")
+                            bg_upload_status["status_message"] = f"⏸️ AUTO-PAUSED: Google API Limit Reached on page {page_num+1}. Resume in 1 minute."
+                            bg_upload_status["errors"].append(f"Auto-Paused at Page {page_num+1} due to API Rate Limit.")
                             save_upload_state(); db.close(); 
                             if doc: doc.close()
                             return
@@ -326,7 +326,6 @@ def process_large_pdf_in_background():
                     student = Student(registration_no=reg_no, admission_year="20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown")
                     db.add(student)
                 
-                # Use dropdown overrides if not AUTO
                 scurr = bg_upload_status.get("selected_curr", "AUTO")
                 scourse = bg_upload_status.get("selected_course", "AUTO")
                 ssubj = bg_upload_status.get("selected_subject", "AUTO")
@@ -391,7 +390,7 @@ def startup_db_setup():
     Base.metadata.create_all(bind=engine)
     try:
         with engine.begin() as conn:
-            # 1. Handle SQLite database upgrades
+            # Handle SQLite & PostgreSQL safely
             if "sqlite" in DATABASE_URL:
                 tables = [r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()]
                 if "paper_records" not in tables:
@@ -399,14 +398,12 @@ def startup_db_setup():
                 columns = [r[1] for r in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
                 if "curriculum" not in columns:
                     conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
-            
-            # 2. Handle PostgreSQL database upgrades
             elif "postgresql" in DATABASE_URL or "postgres" in DATABASE_URL:
                 res = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='students' AND column_name='curriculum';")).fetchone()
                 if not res:
                     conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
     except Exception as e:
-        print(f"Database migration warning (safe to ignore if DB is up to date): {e}")
+        print(f"Database migration info: {e}")
 
     load_upload_state()
 
