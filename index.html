@@ -82,6 +82,7 @@
         button { padding: 12px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; background-color: var(--primary); color: white; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s;}
         button:hover { filter: brightness(0.9); transform: translateY(-1px);}
         .btn-green { background-color: var(--success) !important; width: auto !important; }
+        .btn-sm-green { background-color: var(--success) !important; color: white !important; text-decoration: none !important; padding: 6px 12px !important; border-radius: 6px !important; font-size: 12px !important; display: inline-block !important; margin: 2px !important; }
         .btn-orange { background-color: var(--warning) !important; width: auto !important; color: #000 !important; }
         .btn-red { background-color: var(--danger) !important; width: auto !important; }
         .btn-gray { background-color: var(--text-muted) !important; width: auto !important; }
@@ -243,16 +244,16 @@
                 <div style="margin-top: 30px;" id="papers-container">
                     <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Detailed Subject/Paper Breakdown</h3>
                     <table>
-                        <thead><tr><th>Course Code</th><th>Course Name</th><th>Component</th><th>Full Marks</th><th>Marks Obtained</th><th>Credit</th><th>Grade</th><th>Status</th></tr></thead>
+                        <thead><tr><th>Sem</th><th>Course Code</th><th>Course Name</th><th>Component</th><th>Full Marks</th><th>Marks Obtained</th><th>Credit</th><th>Grade</th><th>Status</th></tr></thead>
                         <tbody id="paper-table-body"></tbody>
                     </table>
                     <button type="button" id="addPaperRowBtn" onclick="addPaperRow()" class="btn-orange" style="display:none; margin-top: 10px;">+ Add Subject Row</button>
                 </div>
 
                 <div style="margin-top: 40px;">
-                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Semester-wise Summary</h3>
+                    <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Semester-wise Summary & Documents</h3>
                     <table>
-                        <thead><tr><th>Semester</th><th>Exam Year</th><th>Full Marks</th><th>Marks Obtained</th><th>Credit</th><th>SGPA</th></tr></thead>
+                        <thead><tr><th>Semester</th><th>Exam Year</th><th>Full Marks</th><th>Marks Obtained</th><th>Credit</th><th>SGPA</th><th>Marksheet PDF</th></tr></thead>
                         <tbody id="sem-table-body"></tbody>
                     </table>
                 </div>
@@ -716,9 +717,11 @@
             if (subj !== "ALL" && subj !== "AUTO" && container.querySelector(".subject-select").style.display !== 'none' && data.student.subject && data.student.subject !== "Unknown" && data.student.subject !== subj) {
                 return showToast(`Match Failed: Student subject is ${data.student.subject}, not ${subj}.`, "error");
             }
+            
+            // ISOLATE SEMESTERS FOR VIEWING
             if (highlightSem !== "ALL") {
-                const hasSem = data.semesters.some(s => s.semester === highlightSem && s.marks_obtained);
-                if (!hasSem) showToast(`Warning: No stored data found specifically for Semester ${highlightSem}.`, "warning");
+                const hasSem = data.semesters.some(s => s.semester === highlightSem && (s.marks_obtained || s.pdf_path));
+                if (!hasSem) return showToast(`No data stored specifically for Semester ${highlightSem} for this student.`, "error");
                 else showToast(`Loaded successfully. Viewing Semester ${highlightSem}.`, "success");
             } else {
                 showToast("Profile loaded successfully.", "success");
@@ -737,34 +740,38 @@
             setElementText("s-curr", data.student.curriculum); setElementText("s-course", data.student.course);
             setElementText("s-subject", data.student.subject); setElementText("s-pass-year", data.student.passout_year); setElementText("s-remarks", data.student.remarks);
 
-            // Hide the paper table if viewing specific semester, because papers lack semester tags in backend.
-            document.getElementById("papers-container").style.display = highlightSem !== "ALL" ? "none" : "block";
-
-            renderPaperTable(data.papers || [], false);
+            // Filter Papers explicitly by highlighted Sem
+            const papersToRender = highlightSem === "ALL" ? data.papers : data.papers.filter(p => p.semester === highlightSem);
+            renderPaperTable(papersToRender, false);
             renderSemesterTable(data.semesters || [], false, highlightSem);
+            
             document.getElementById("profile-area").style.display = "block";
             document.getElementById("addPaperRowBtn").style.display = "none";
         }
 
         function renderPaperTable(papers, editable) {
             const tbody = document.getElementById("paper-table-body"); tbody.innerHTML = "";
-            if(papers.length === 0 && !editable) { tbody.innerHTML = "<tr><td colspan='8'>No records found.</td></tr>"; return; }
+            if(papers.length === 0 && !editable) { tbody.innerHTML = "<tr><td colspan='9'>No individual subject records found for this view.</td></tr>"; return; }
             papers.forEach(p => {
                 if (editable) {
                     tbody.innerHTML += `<tr>
+                        <td><input type="text" class="edit-p-sem" value="${p.semester || ''}" style="width:50px; text-align:center;"></td>
                         <td><input type="text" class="edit-p-code" value="${p.course_code}"></td><td><input type="text" class="edit-p-name" value="${p.course_name}"></td>
                         <td><input type="text" class="edit-p-comp" value="${p.component}"></td><td><input type="text" class="edit-p-fm" value="${p.full_marks}"></td>
                         <td><input type="text" class="edit-p-mo" value="${p.marks_obtained}"></td><td><input type="text" class="edit-p-cred" value="${p.credit}"></td>
                         <td><input type="text" class="edit-p-grade" value="${p.grade}"></td><td><input type="text" class="edit-p-stat" value="${p.status}"></td>
                     </tr>`;
                 } else {
-                    tbody.innerHTML += `<tr><td><b>${p.course_code}</b></td><td>${p.course_name}</td><td>${p.component}</td><td>${p.full_marks}</td><td>${p.marks_obtained}</td><td>${p.credit}</td><td><b>${p.grade}</b></td><td>${p.status}</td></tr>`;
+                    tbody.innerHTML += `<tr><td><b>${p.semester || '-'}</b></td><td><b>${p.course_code}</b></td><td>${p.course_name}</td><td>${p.component}</td><td>${p.full_marks}</td><td>${p.marks_obtained}</td><td>${p.credit}</td><td><b>${p.grade}</b></td><td>${p.status}</td></tr>`;
                 }
             });
         }
 
         function addPaperRow() {
+            const highlightSem = document.querySelector("#search-bar-profile .sem-select").value;
+            const defSem = highlightSem !== "ALL" ? highlightSem : "";
             document.getElementById("paper-table-body").innerHTML += `<tr>
+                <td><input type="text" class="edit-p-sem" value="${defSem}" style="width:50px; text-align:center;"></td>
                 <td><input type="text" class="edit-p-code"></td><td><input type="text" class="edit-p-name"></td><td><input type="text" class="edit-p-comp"></td>
                 <td><input type="text" class="edit-p-fm"></td><td><input type="text" class="edit-p-mo"></td><td><input type="text" class="edit-p-cred"></td>
                 <td><input type="text" class="edit-p-grade"></td><td><input type="text" class="edit-p-stat"></td>
@@ -777,8 +784,9 @@
             if (highlightSem !== "ALL") semsToRender = [highlightSem]; // STRICT SEMESTER ISOLATION
 
             semsToRender.forEach(sem => {
-                let s = semesters.find(i => i.semester === sem) || { semester: sem, year: "", full_marks: "", marks_obtained: "", credit: "", sgpa: "" };
+                let s = semesters.find(i => i.semester === sem) || { semester: sem, year: "", full_marks: "", marks_obtained: "", credit: "", sgpa: "", pdf_path: "" };
                 let trStyle = (sem === highlightSem) ? "background-color: #f0fdf4; border-left: 4px solid #3b82f6;" : "";
+                let pdfBtn = s.pdf_path ? `<a href="/${s.pdf_path}" target="_blank" class="btn-sm-green">📄 View Sem ${sem} PDF</a>` : `<span style="color:#94a3b8; font-size:12px;">Not Stored</span>`;
                 
                 if (editable) {
                     tbody.innerHTML += `<tr style="${trStyle}">
@@ -788,9 +796,10 @@
                         <td><input type="text" class="edit-sem-mo" value="${s.marks_obtained}"></td>
                         <td><input type="text" class="edit-sem-cred" value="${s.credit}"></td>
                         <td><input type="text" class="edit-sem-sgpa" value="${s.sgpa}"></td>
+                        <td>${pdfBtn}</td>
                     </tr>`;
                 } else {
-                    tbody.innerHTML += `<tr style="${trStyle}"><td><b>${sem}</b></td><td>${s.year}</td><td>${s.full_marks}</td><td>${s.marks_obtained}</td><td>${s.credit}</td><td><b>${s.sgpa}</b></td></tr>`;
+                    tbody.innerHTML += `<tr style="${trStyle}"><td><b>${sem}</b></td><td>${s.year}</td><td>${s.full_marks}</td><td>${s.marks_obtained}</td><td>${s.credit}</td><td><b>${s.sgpa}</b></td><td>${pdfBtn}</td></tr>`;
                 }
             });
         }
@@ -805,11 +814,14 @@
             document.getElementById("save-edit-btn-container").style.display = isEditMode ? "block" : "none";
             
             const highlightSem = document.querySelector("#search-bar-profile .sem-select").value;
-            document.getElementById("papers-container").style.display = "block"; // Always show papers in edit mode
             document.getElementById("addPaperRowBtn").style.display = isEditMode ? "inline-block" : "none";
             document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks";
             
-            apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { renderPaperTable(data.papers||[], isEditMode); renderSemesterTable(data.semesters||[], isEditMode, isEditMode ? "ALL" : highlightSem); });
+            apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { 
+                const papersToRender = (!isEditMode && highlightSem !== "ALL") ? data.papers.filter(p => p.semester === highlightSem) : data.papers;
+                renderPaperTable(papersToRender || [], isEditMode); 
+                renderSemesterTable(data.semesters||[], isEditMode, isEditMode ? "ALL" : highlightSem); 
+            });
         }
 
         async function saveFullProfileEdit() {
@@ -820,8 +832,8 @@
             });
             document.querySelectorAll("#paper-table-body tr").forEach(row => {
                 if(row.querySelector(".edit-p-code")) {
-                    const c = row.querySelector(".edit-p-code").value.trim(), n = row.querySelector(".edit-p-name").value.trim();
-                    if(c || n) updatedPapers.push({ course_code: c, course_name: n, component: row.querySelector(".edit-p-comp").value.trim(), full_marks: row.querySelector(".edit-p-fm").value.trim(), marks_obtained: row.querySelector(".edit-p-mo").value.trim(), credit: row.querySelector(".edit-p-cred").value.trim(), grade: row.querySelector(".edit-p-grade").value.trim(), status: row.querySelector(".edit-p-stat").value.trim() });
+                    const c = row.querySelector(".edit-p-code").value.trim(), n = row.querySelector(".edit-p-name").value.trim(), s = row.querySelector(".edit-p-sem").value.trim();
+                    if(c || n) updatedPapers.push({ semester: s, course_code: c, course_name: n, component: row.querySelector(".edit-p-comp").value.trim(), full_marks: row.querySelector(".edit-p-fm").value.trim(), marks_obtained: row.querySelector(".edit-p-mo").value.trim(), credit: row.querySelector(".edit-p-cred").value.trim(), grade: row.querySelector(".edit-p-grade").value.trim(), status: row.querySelector(".edit-p-stat").value.trim() });
                 }
             });
             const payload = {
@@ -956,8 +968,8 @@
                 let proofLink = st.proof_document_path ? `<br><a href="/${st.proof_document_path}" target="_blank">📄 View Proof</a>` : '';
                 let detailsText = st.post_grad_details ? `<br><small>${st.post_grad_details}</small>` : '';
 
-                // NEW: VISUALIZE STORED SEMESTERS TO FIX "WRONG RESULT" CONFUSIONS
-                let storedSems = st.semesters.filter(s => s.marks_obtained).map(s => s.semester).join(", ");
+                // NEW: VISUALIZE STORED SEMESTERS
+                let storedSems = st.semesters.filter(s => s.marks_obtained || s.pdf_path).map(s => s.semester).join(", ");
                 if (!storedSems) storedSems = "None";
 
                 html += `<tr>
@@ -1006,19 +1018,20 @@
                 const mCurr = (curr==="ALL") || (st.curriculum === curr);
                 const mCourse = (course==="ALL") || (st.course === course);
                 const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
-                let mSem = true; if (sem!=="ALL") { mSem=false; st.semesters.forEach(r => { if(r.semester===sem) mSem=true; }); }
+                let mSem = true; if (sem!=="ALL") { mSem=false; st.semesters.forEach(r => { if(r.semester===sem && r.pdf_path) mSem=true; }); }
                 return mSearch && mCurr && mCourse && mSubj && mSem;
             });
             
             const repoCont = document.getElementById("repository-container");
             if (list.length === 0) return repoCont.innerHTML = "<p style='text-align:center;'>No matches.</p>";
-            let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Course</th><th>Stored Sems</th><th>Passout Year</th><th>Action</th></tr></thead><tbody>`;
+            let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Course</th><th>Passout Year</th><th>Stored Marksheet PDFs</th></tr></thead><tbody>`;
             list.forEach(st => { 
-                let pdf = st.pdf_document_path ? `<a href="/${st.pdf_document_path}" target="_blank"><button class="btn-green">📄 View PDF</button></a>` : "Not Stored";
-                let storedSems = st.semesters.filter(s => s.marks_obtained).map(s => s.semester).join(", ");
-                if (!storedSems) storedSems = "None";
+                
+                // MULTIPLE PDF BUTTONS
+                let pdfLinks = st.semesters.filter(s => s.pdf_path).map(s => `<a href="/${s.pdf_path}" target="_blank" class="btn-sm-green">Sem ${s.semester}</a>`).join(" ");
+                if (!pdfLinks) pdfLinks = `<span style="color:#94a3b8;">Not Stored</span>`;
 
-                html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}<br>${st.course}<br><b>${st.subject}</b></td><td><span class="status-tag tag-yes">${storedSems}</span></td><td>${st.passout_year}</td><td>${pdf}</td></tr>`; 
+                html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}<br>${st.course}<br><b>${st.subject}</b></td><td>${st.passout_year}</td><td>${pdfLinks}</td></tr>`; 
             });
             repoCont.innerHTML = html + `</tbody></table>`;
         }
