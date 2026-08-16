@@ -11,7 +11,6 @@ from PIL import Image
 from dotenv import load_dotenv
 load_dotenv()
 
-# Safe Imports for PDF processing
 try:
     import pymupdf as fitz
 except ImportError:
@@ -100,7 +99,6 @@ class Student(Base):
     post_grad_status = Column(String, default="Unknown") 
     post_grad_details = Column(String, default="") 
     proof_document_path = Column(String, default="") 
-    pdf_document_path = Column(String, default="") 
     
     semesters = relationship("SemesterRecord", back_populates="student", cascade="all, delete-orphan")
     papers = relationship("PaperRecord", back_populates="student", cascade="all, delete-orphan")
@@ -115,12 +113,14 @@ class SemesterRecord(Base):
     marks_obtained = Column(String)
     credit = Column(String, default="20")
     sgpa = Column(String)
+    pdf_path = Column(String, default="") # NEW: Store PDF per semester
     student = relationship("Student", back_populates="semesters")
 
 class PaperRecord(Base):
     __tablename__ = "paper_records"
     id = Column(Integer, primary_key=True, index=True)
     registration_no = Column(String, ForeignKey("students.registration_no"))
+    semester = Column(String, default="Unknown") # NEW: Tie papers to exact semester
     course_code = Column(String, default="")
     course_name = Column(String, default="")
     component = Column(String, default="")
@@ -134,7 +134,6 @@ class PaperRecord(Base):
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("uploads/pdf_repository", exist_ok=True)
 
-# Save tracking file to OS Temp directory to avoid triggering Uvicorn Auto-Reloads
 TEMP_DIR = tempfile.gettempdir()
 STATE_FILE = os.path.join(TEMP_DIR, "cu_upload_state.json")
 
@@ -165,7 +164,6 @@ def save_upload_state():
     except: pass
 
 def parse_marksheet_with_gemini_vision(page):
-    # REDUCED DPI TO 100 TO COMPLETELY ELIMINATE OUT-OF-MEMORY (RAM) CRASHES
     pix = page.get_pixmap(dpi=100)
     img_data = pix.tobytes("jpeg")
     image = Image.open(io.BytesIO(img_data))
@@ -173,11 +171,13 @@ def parse_marksheet_with_gemini_vision(page):
     prompt = """
     Extract Calcutta University Grade Sheet data.
     IMPORTANT RULES:
-    1. Identify Curriculum: If "CCF" or "MDC" or "Four Year" or "Three Year" is mentioned, return 'CCF'. If it's Choice Based Credit System, return 'CBCS'.
-    2. Identify Course (e.g., BA (Hons), BSc (MDC), etc.). Note: "Three Year" usually means MDC or General.
-    3. Identify Subject code (e.g., BNGA, BGNM, etc.). If MDC or General, subject may be empty or 'Unknown'.
+    1. Identify the Main Exam Semester from the top header (e.g. "B.A. Semester-VI" -> "VI"). Set "exam_semester" to this Roman numeral.
+    2. Identify Curriculum: "CCF", "MDC", "Four Year", "Three Year" -> 'CCF'. "Choice Based Credit System" -> 'CBCS'.
+    3. Identify Course and Subject code.
+    4. For the "papers" array, ONLY list the detailed subjects/papers belonging strictly to the "exam_semester". DO NOT list previous semester papers.
+    5. For "semesters", extract all SGPA summary rows.
     
-    Return ONLY a valid JSON object matching this exact schema:
+    Return ONLY a valid JSON object matching this schema:
 
     {
       "registration_no": "424-1211-0240-19",
@@ -190,6 +190,7 @@ def parse_marksheet_with_gemini_vision(page):
       "overall_cgpa": "6.819",
       "overall_grade": "B+",
       "remarks": "Qualified",
+      "exam_semester": "VI",
       "papers": [
         {
           "course_code": "CAGM-MDC-3",
@@ -208,10 +209,6 @@ def parse_marksheet_with_gemini_vision(page):
     }
     """
     
-    # ---------------------------------------------------------
-    # BULLETPROOF FIX: Dynamically fetch allowed models from Google
-    # This prevents 404 errors caused by region locks or deprecated models.
-    # ---------------------------------------------------------
     fetched_models = []
     try:
         if ai_client_type == "legacy":
@@ -221,20 +218,14 @@ def parse_marksheet_with_gemini_vision(page):
         elif ai_client_type == "new":
             for m in ai_client.models.list():
                 fetched_models.append(m.name.replace('models/', ''))
-    except Exception as e:
-        print(f"Warning: Could not auto-fetch models: {e}")
+    except Exception: pass
 
-    # Filter and prioritize Flash models first, then Pro models
     flash_models = sorted([m for m in fetched_models if 'flash' in m.lower()], reverse=True)
     pro_models = sorted([m for m in fetched_models if 'pro' in m.lower()], reverse=True)
-    
     final_models_list = flash_models + pro_models
     
-    # If the API key returns nothing (due to severe permission locks), use safe standard aliases
     if not final_models_list:
         final_models_list = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-flash', 'gemini-pro']
-
-    print(f"\n[DEBUG] Auto-Detected API Models. Using: {final_models_list[:3]}\n")
 
     last_exception = None
     for model_name in final_models_list:
@@ -251,40 +242,26 @@ def parse_marksheet_with_gemini_vision(page):
                     )
                     txt = response.text.strip()
                 else:
-                    raise Exception("API Key Missing or SDK Error")
+                    raise Exception("API Key Missing")
 
                 if txt.startswith("```"):
                     txt = txt.strip("`").strip()
                     if txt.lower().startswith("json"): txt = txt[4:].strip()
                 
-                # STRICT MEMORY CLEANUP
                 image.close()
-                del img_data
-                del pix
-                
+                del img_data, pix
                 return json.loads(txt)
                 
             except Exception as e:
                 last_exception = e
                 err_str = str(e).lower()
-                
-                # If model is not found, immediately break and try the next model in the dynamically generated list
-                if "404" in err_str or "not found" in err_str: 
-                    break 
-                
-                # If rate limited (quota exceeded), wait 20s and retry the SAME model
+                if "404" in err_str or "not found" in err_str: break 
                 if "429" in err_str or "quota" in err_str or "exhausted" in err_str:
-                    time.sleep(20)
-                    continue
-                
-                # For any other server error, wait briefly and retry
-                time.sleep(3)
-                continue
+                    time.sleep(20); continue
+                time.sleep(3); continue
 
-    # Cleanup memory even on complete failure
     image.close()
-    del img_data
-    del pix
+    del img_data, pix
     raise last_exception
 
 def process_large_pdf_in_background():
@@ -301,14 +278,12 @@ def process_large_pdf_in_background():
         
         for page_num in range(bg_upload_status["processed_pages"], len(doc)):
             if bg_upload_status.get("pause_requested"):
-                bg_upload_status["is_processing"] = False
-                bg_upload_status["is_paused"] = True
+                bg_upload_status["is_processing"] = False; bg_upload_status["is_paused"] = True
                 bg_upload_status["status_message"] = f"⏸️ Paused at page {page_num}."
                 save_upload_state(); db.close(); doc.close(); return
 
             try:
                 page = doc[page_num]
-                
                 if ai_client_type:
                     try:
                         if page_num > 0: time.sleep(0.3) 
@@ -317,23 +292,24 @@ def process_large_pdf_in_background():
                         if not reg_no or reg_no == "null":
                             bg_upload_status["errors"].append(f"Page {page_num+1}: No Reg No detected.")
                             bg_upload_status["processed_pages"] = page_num + 1
-                            save_upload_state()
-                            continue
+                            save_upload_state(); continue
                     except Exception as ai_err:
-                        ai_error_msg = str(ai_err)
-                        if "429" in ai_error_msg.lower() or "exhausted" in ai_error_msg.lower() or "quota" in ai_error_msg.lower():
-                            bg_upload_status["is_processing"] = False
-                            bg_upload_status["is_paused"] = True
-                            bg_upload_status["status_message"] = f"⏸️ AUTO-PAUSED: Google API Limit Reached on page {page_num+1}. Resume in 1 minute."
-                            bg_upload_status["errors"].append(f"Auto-Paused at Page {page_num+1} due to API Rate Limit.")
+                        if "429" in str(ai_err).lower() or "exhausted" in str(ai_err).lower():
+                            bg_upload_status["is_processing"] = False; bg_upload_status["is_paused"] = True
+                            bg_upload_status["status_message"] = f"⏸️ AUTO-PAUSED: Google API Limit. Resume in 1 minute."
                             save_upload_state(); db.close(); 
                             if doc: doc.close()
                             return
-                        raise Exception(f"AI Parsing Failed: {ai_error_msg}")
-                else:
-                    raise Exception("API Key Missing or SDK Error")
+                        raise ai_err
 
-                # Prepare Normalized Data
+                # Format current Exam Semester gracefully
+                raw_sem = str(data.get("exam_semester", "Unknown")).upper().replace("SEMESTER", "").replace("-", "").strip()
+                roman_map = {"1":"I", "2":"II", "3":"III", "4":"IV", "5":"V", "6":"VI", "7":"VII", "8":"VIII", "01":"I", "02":"II"}
+                exam_sem = roman_map.get(raw_sem, raw_sem)
+                if exam_sem not in ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"]:
+                    match = re.search(r'(VIII|VII|VI|V|IV|III|II|I)', exam_sem)
+                    exam_sem = match.group(1) if match else "Unknown"
+
                 norm_sems, norm_papers = [], []
                 for s in data.get("semesters", []):
                     if not s.get("semester"): continue
@@ -359,14 +335,13 @@ def process_large_pdf_in_background():
                         "status": str(p.get("status", "")).strip()
                     })
 
-                pdf_path = f"uploads/pdf_repository/{reg_no}.pdf"
+                pdf_path = f"uploads/pdf_repository/{reg_no}_{exam_sem}.pdf"
                 try:
                     if fitz:
                         new_pdf = fitz.open()
                         new_pdf.insert_pdf(doc, from_page=page_num, to_page=page_num)
                         new_pdf.save(pdf_path)
                         new_pdf.close()
-                        del new_pdf
                 except Exception: pdf_path = ""
 
                 student = db.query(Student).filter(Student.registration_no == reg_no).first()
@@ -374,26 +349,42 @@ def process_large_pdf_in_background():
                     student = Student(registration_no=reg_no, admission_year="20" + reg_no.split("-")[-1] if "-" in reg_no else "Unknown")
                     db.add(student)
                 
-                scurr = bg_upload_status.get("selected_curr", "AUTO")
-                scourse = bg_upload_status.get("selected_course", "AUTO")
-                ssubj = bg_upload_status.get("selected_subject", "AUTO")
+                scurr, scourse, ssubj = bg_upload_status.get("selected_curr", "AUTO"), bg_upload_status.get("selected_course", "AUTO"), bg_upload_status.get("selected_subject", "AUTO")
 
-                student.name = data.get("name", "Unknown")
-                student.roll_no = data.get("roll_no", "Unknown")
+                if data.get("name") and data["name"] != "Unknown": student.name = data["name"]
+                if data.get("roll_no") and data["roll_no"] != "Unknown": student.roll_no = data["roll_no"]
                 student.curriculum = scurr if scurr != "AUTO" and scurr else data.get("curriculum", "Unknown")
                 student.course = scourse if scourse != "AUTO" and scourse else data.get("course", "Unknown")
                 student.subject = ssubj if ssubj != "AUTO" and ssubj else data.get("subject", "Unknown")
-                student.passout_year = str(data.get("passout_year", "Nil")).strip()
-                student.overall_cgpa = data.get("overall_cgpa", "N.A.")
-                student.overall_grade = data.get("overall_grade", "Fail")
-                student.remarks = data.get("remarks", "Qualified")
-                if pdf_path: student.pdf_document_path = pdf_path
+                if data.get("passout_year") and data["passout_year"] != "Nil": student.passout_year = str(data["passout_year"]).strip()
+                if data.get("overall_cgpa"): student.overall_cgpa = data["overall_cgpa"]
+                if data.get("overall_grade"): student.overall_grade = data["overall_grade"]
                 
-                db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
-                for s in norm_sems: db.add(SemesterRecord(registration_no=reg_no, **s))
+                # Intelligent Upsert to Prevent Overwriting Semesters
+                for s_data in norm_sems:
+                    s_name = s_data["semester"]
+                    sem_rec = db.query(SemesterRecord).filter_by(registration_no=reg_no, semester=s_name).first()
+                    if not sem_rec:
+                        sem_rec = SemesterRecord(registration_no=reg_no, semester=s_name)
+                        db.add(sem_rec)
+                    if s_data.get("year"): sem_rec.year = s_data["year"]
+                    if s_data.get("full_marks"): sem_rec.full_marks = s_data["full_marks"]
+                    if s_data.get("marks_obtained"): sem_rec.marks_obtained = s_data["marks_obtained"]
+                    if s_data.get("credit"): sem_rec.credit = s_data["credit"]
+                    if s_data.get("sgpa"): sem_rec.sgpa = s_data["sgpa"]
+
+                if exam_sem != "Unknown" and pdf_path:
+                    exam_sem_rec = db.query(SemesterRecord).filter_by(registration_no=reg_no, semester=exam_sem).first()
+                    if not exam_sem_rec:
+                        exam_sem_rec = SemesterRecord(registration_no=reg_no, semester=exam_sem)
+                        db.add(exam_sem_rec)
+                    exam_sem_rec.pdf_path = pdf_path
                 
-                db.query(PaperRecord).filter(PaperRecord.registration_no == reg_no).delete()
-                for p in norm_papers: db.add(PaperRecord(registration_no=reg_no, **p))
+                if exam_sem != "Unknown":
+                    db.query(PaperRecord).filter_by(registration_no=reg_no, semester=exam_sem).delete()
+                    for p in norm_papers: db.add(PaperRecord(registration_no=reg_no, semester=exam_sem, **p))
+                else:
+                    for p in norm_papers: db.add(PaperRecord(registration_no=reg_no, semester="Unknown", **p))
 
                 bg_upload_status["extracted_count"] += 1
                 bg_upload_status["processed_pages"] = page_num + 1
@@ -401,10 +392,7 @@ def process_large_pdf_in_background():
                 save_upload_state()
 
                 if page_num % 5 == 0: db.commit()
-                
-                # FORCE GARBAGE COLLECTION TO PREVENT RAM OVERFLOW
-                page = None
-                gc.collect()
+                page = None; gc.collect()
 
             except Exception as page_err:
                 db.rollback()
@@ -445,14 +433,26 @@ def startup_db_setup():
             if "sqlite" in DATABASE_URL:
                 tables = [r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()]
                 if "paper_records" not in tables:
-                    conn.execute(text("CREATE TABLE paper_records (id INTEGER PRIMARY KEY AUTOINCREMENT, registration_no VARCHAR, course_code VARCHAR, course_name VARCHAR, component VARCHAR, full_marks VARCHAR, marks_obtained VARCHAR, credit VARCHAR, grade VARCHAR, status VARCHAR)"))
-                columns = [r[1] for r in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
-                if "curriculum" not in columns:
-                    conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
+                    conn.execute(text("CREATE TABLE paper_records (id INTEGER PRIMARY KEY AUTOINCREMENT, registration_no VARCHAR, semester VARCHAR, course_code VARCHAR, course_name VARCHAR, component VARCHAR, full_marks VARCHAR, marks_obtained VARCHAR, credit VARCHAR, grade VARCHAR, status VARCHAR)"))
+                
+                col_st = [r[1] for r in conn.execute(text("PRAGMA table_info(students);")).fetchall()]
+                if "curriculum" not in col_st: conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
+                
+                col_p = [r[1] for r in conn.execute(text("PRAGMA table_info(paper_records);")).fetchall()]
+                if "semester" not in col_p: conn.execute(text("ALTER TABLE paper_records ADD COLUMN semester VARCHAR DEFAULT 'Unknown'"))
+                
+                col_s = [r[1] for r in conn.execute(text("PRAGMA table_info(semester_records);")).fetchall()]
+                if "pdf_path" not in col_s: conn.execute(text("ALTER TABLE semester_records ADD COLUMN pdf_path VARCHAR DEFAULT ''"))
+
             elif "postgresql" in DATABASE_URL or "postgres" in DATABASE_URL:
-                res = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='students' AND column_name='curriculum';")).fetchone()
-                if not res:
-                    conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
+                res_c = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='students' AND column_name='curriculum';")).fetchone()
+                if not res_c: conn.execute(text("ALTER TABLE students ADD COLUMN curriculum VARCHAR DEFAULT 'Unknown'"))
+                
+                res_p = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='paper_records' AND column_name='semester';")).fetchone()
+                if not res_p: conn.execute(text("ALTER TABLE paper_records ADD COLUMN semester VARCHAR DEFAULT 'Unknown'"))
+                
+                res_s = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='semester_records' AND column_name='pdf_path';")).fetchone()
+                if not res_s: conn.execute(text("ALTER TABLE semester_records ADD COLUMN pdf_path VARCHAR DEFAULT ''"))
     except Exception as e:
         print(f"Database migration info: {e}")
 
@@ -464,7 +464,6 @@ def serve_frontend(): return FileResponse("index.html")
 @app.get("/api/auth/me")
 def get_auth_me(user: dict = Depends(get_current_user)): return {"username": user["username"], "role": user["role"]}
 
-# MADE ASYNC TO PREVENT BLOCKING THE NETWORK PIPELINE
 @app.get("/api/admin/upload-status")
 async def get_upload_status(): return bg_upload_status
 
@@ -472,7 +471,6 @@ async def get_upload_status(): return bg_upload_status
 async def upload_marksheet(background_tasks: BackgroundTasks, file: UploadFile = File(...), 
                            selected_curr: str = Form("AUTO"), selected_course: str = Form("AUTO"), 
                            selected_subject: str = Form("AUTO"), user: dict = Depends(require_admin)):
-    # Save target PDF to temp directory to bypass Uvicorn watchers
     temp_pdf_path = os.path.join(TEMP_DIR, f"temp_{secrets.token_hex(4)}_{file.filename}")
     with open(temp_pdf_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
     doc = fitz.open(temp_pdf_path) if fitz else []
@@ -523,10 +521,10 @@ def get_student(reg_no: str, db: Session = Depends(get_db)):
             "marksheet_received": student.marksheet_received, "certificate_received": student.certificate_received,
             "marksheet_issue_date": student.marksheet_issue_date, "certificate_issue_date": student.certificate_issue_date,
             "issued_by": student.issued_by, "status": student.post_grad_status, 
-            "details": student.post_grad_details, "proof": student.proof_document_path, "pdf_path": student.pdf_document_path
+            "details": student.post_grad_details, "proof": student.proof_document_path
         },
-        "semesters": [{"semester": s.semester, "year": s.year, "full_marks": s.full_marks, "marks_obtained": s.marks_obtained, "credit": s.credit, "sgpa": s.sgpa} for s in student.semesters],
-        "papers": [{"course_code": p.course_code, "course_name": p.course_name, "component": p.component, "full_marks": p.full_marks, "marks_obtained": p.marks_obtained, "credit": p.credit, "grade": p.grade, "status": p.status} for p in student.papers]
+        "semesters": [{"semester": s.semester, "year": s.year, "full_marks": s.full_marks, "marks_obtained": s.marks_obtained, "credit": s.credit, "sgpa": s.sgpa, "pdf_path": s.pdf_path} for s in student.semesters],
+        "papers": [{"semester": p.semester, "course_code": p.course_code, "course_name": p.course_name, "component": p.component, "full_marks": p.full_marks, "marks_obtained": p.marks_obtained, "credit": p.credit, "grade": p.grade, "status": p.status} for p in student.papers]
     }
 
 @app.post("/api/admin/update-profile-full/{reg_no}")
@@ -538,12 +536,16 @@ async def update_student_profile_full(reg_no: str, payload: dict, db: Session = 
     student.curriculum, student.course, student.subject = payload.get("curriculum"), payload.get("course"), payload.get("subject")
     student.passout_year, student.overall_cgpa, student.overall_grade, student.remarks = payload.get("passout_year"), payload.get("cgpa"), payload.get("grade"), payload.get("remarks")
     
-    db.query(SemesterRecord).filter(SemesterRecord.registration_no == reg_no).delete()
     for sem in payload.get("semesters", []): 
-        db.add(SemesterRecord(registration_no=reg_no, semester=sem.get("semester"), year=sem.get("year"), full_marks=sem.get("full_marks"), marks_obtained=sem.get("marks_obtained"), credit=sem.get("credit"), sgpa=sem.get("sgpa")))
+        sem_rec = db.query(SemesterRecord).filter_by(registration_no=reg_no, semester=sem.get("semester")).first()
+        if not sem_rec:
+            sem_rec = SemesterRecord(registration_no=reg_no, semester=sem.get("semester"))
+            db.add(sem_rec)
+        sem_rec.year = sem.get("year"); sem_rec.full_marks = sem.get("full_marks"); sem_rec.marks_obtained = sem.get("marks_obtained")
+        sem_rec.credit = sem.get("credit"); sem_rec.sgpa = sem.get("sgpa")
+        
     db.query(PaperRecord).filter(PaperRecord.registration_no == reg_no).delete()
-    for p in payload.get("papers", []): 
-        db.add(PaperRecord(registration_no=reg_no, **p))
+    for p in payload.get("papers", []): db.add(PaperRecord(registration_no=reg_no, **p))
     db.commit()
     return {"message": "Success"}
 
@@ -582,7 +584,8 @@ def get_all_students(db: Session = Depends(get_db)): return db.query(Student).op
 @app.delete("/api/admin/student/{reg_no}")
 def delete_student(reg_no: str, db: Session = Depends(get_db), user: dict = Depends(require_admin)):
     student = db.query(Student).filter(Student.registration_no == reg_no).first()
-    if student.pdf_document_path and os.path.exists(student.pdf_document_path): os.remove(student.pdf_document_path)
+    for s in student.semesters:
+        if s.pdf_path and os.path.exists(s.pdf_path): os.remove(s.pdf_path)
     db.delete(student)
     db.commit()
     return {"message": "Deleted"}
@@ -595,6 +598,5 @@ def clear_all_students(db: Session = Depends(get_db), user: dict = Depends(requi
 
 if __name__ == "__main__":
     import uvicorn
-    # EXPLICITLY DISABLE RELOAD TO PREVENT SQLITE DB MODIFICATIONS FROM CRASHING THE SERVER
-    print("\n[+] Starting Server... (Reload explicitly disabled for file-writing safety)\n")
+    print("\n[+] Starting Server...\n")
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=False)
