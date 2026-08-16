@@ -15,18 +15,42 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg-main); color: var(--text-dark); min-height: 100vh; display: flex; flex-direction: column; }
         
-        /* LOGIN MODAL */
-        .login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; z-index: 9999; }
-        .login-box { background: white; padding: 40px 30px; border-radius: 16px; width: 100%; max-width: 420px; box-shadow: 0 25px 50px rgba(0,0,0,0.25); text-align: center; animation: popIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-        .login-logo { font-size: 48px; background: linear-gradient(135deg, #3b82f6, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
-        .login-box h2 { font-size: 26px; color: var(--secondary); margin-bottom: 5px; }
-        .login-box p { color: var(--text-muted); font-size: 14px; margin-bottom: 25px; }
-        .login-input { width: 100%; padding: 14px 16px; margin-bottom: 15px; border: 2px solid var(--border-color); border-radius: 10px; font-size: 15px; transition: all 0.2s; background: #f8fafc; }
-        .login-input:focus { outline: none; border-color: var(--primary); background: white; box-shadow: 0 0 0 4px rgba(37,99,235,0.1); }
-        .login-btn { width: 100%; padding: 14px; font-size: 16px; background: linear-gradient(135deg, #2563eb, #06b6d4); border: none; color: white; border-radius: 10px; cursor: pointer; font-weight: bold; transition: transform 0.2s; }
-        .login-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(37,99,235,0.2); }
-        #login-error { color: var(--danger); font-size: 14px; font-weight: bold; margin-bottom: 15px; display: none; }
+        /* STATE OF THE ART LOGIN MODAL */
+        .login-overlay { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: linear-gradient(-45deg, #0f172a, #1e293b, #0f172a, #3b82f6); 
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+            backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; z-index: 9999; 
+        }
+        @keyframes gradientBG { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        
+        .login-box { 
+            background: rgba(255, 255, 255, 0.95); padding: 50px 40px; border-radius: 24px; 
+            width: 100%; max-width: 440px; 
+            box-shadow: 0 30px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.2) inset; 
+            text-align: center; backdrop-filter: blur(20px);
+            animation: popIn 0.5s cubic-bezier(0.16, 1, 0.3, 1); 
+        }
+        .login-logo { font-size: 56px; margin-bottom: 10px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1)); }
+        .login-box h2 { font-size: 28px; color: var(--secondary); margin-bottom: 8px; font-weight: 800; letter-spacing: -0.5px;}
+        .login-box p { color: var(--text-muted); font-size: 15px; margin-bottom: 30px; }
+        .input-group { position: relative; margin-bottom: 20px; }
+        .input-group span { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); font-size: 18px; color: #94a3b8; }
+        .login-input { width: 100%; padding: 16px 20px 16px 45px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 15px; font-weight: 500; transition: all 0.3s; background: #f8fafc; }
+        .login-input:focus { outline: none; border-color: var(--primary); background: white; box-shadow: 0 0 0 4px rgba(37,99,235,0.15); transform: translateY(-1px); }
+        .login-btn { width: 100%; padding: 16px; font-size: 17px; background: linear-gradient(135deg, #2563eb, #06b6d4); border: none; color: white; border-radius: 12px; cursor: pointer; font-weight: bold; transition: all 0.3s; box-shadow: 0 4px 15px rgba(37,99,235,0.3); }
+        .login-btn:hover { transform: translateY(-3px); box-shadow: 0 12px 25px rgba(37,99,235,0.4); }
         @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        /* TOAST NOTIFICATIONS */
+        #toast-container { position: fixed; top: 25px; right: 25px; z-index: 100000; display: flex; flex-direction: column; gap: 12px; }
+        .toast { background: white; border-left: 5px solid var(--primary); box-shadow: 0 10px 25px rgba(0,0,0,0.2); padding: 16px 24px; border-radius: 10px; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 12px; color: var(--text-dark); animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .toast.success { border-color: var(--success); }
+        .toast.error { border-color: var(--danger); }
+        .toast.warning { border-color: var(--warning); }
+        @keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeOutToast { to { opacity: 0; transform: translateY(-10px); } }
 
         .navbar { background-color: var(--secondary); color: white; padding: 0 25px; height: 70px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15);}
         .nav-brand { display: flex; align-items: center; gap: 12px; }
@@ -67,7 +91,6 @@
         .dropzone:hover { border-color: var(--primary); background: #eff6ff;}
         .dropzone-icon { font-size: 42px; color: var(--primary); margin-bottom: 10px; }
 
-        /* UNIFIED SEARCH BAR */
         .search-bar-container { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; width: 100%; flex-wrap: wrap; background: #f1f5f9; padding: 12px; border-radius: 10px; border: 1px solid var(--border-color);}
         .search-bar-container select { width: auto; flex: 1; min-width: 140px; margin: 0; border: 2px solid #cbd5e1; }
         .search-bar-container input.reg-input { flex: 2; margin: 0; min-width: 200px; padding: 12px; border: 2px solid var(--primary); }
@@ -100,16 +123,23 @@
 </head>
 <body>
 
+    <div id="toast-container"></div>
+
     <!-- STATE OF THE ART LOGIN MODAL -->
     <div class="login-overlay" id="login-overlay">
         <div class="login-box">
             <div class="login-logo">🎓</div>
             <h2>Welcome Back</h2>
             <p>Shyampur Siddheswari Portal Access</p>
-            <div id="login-error"></div>
             <form onsubmit="doLogin(event)">
-                <input type="text" id="login-user" class="login-input" placeholder="Username" required autocomplete="username">
-                <input type="password" id="login-pass" class="login-input" placeholder="Password" required autocomplete="current-password">
+                <div class="input-group">
+                    <span>👤</span>
+                    <input type="text" id="login-user" class="login-input" placeholder="Username" required autocomplete="username">
+                </div>
+                <div class="input-group">
+                    <span>🔒</span>
+                    <input type="password" id="login-pass" class="login-input" placeholder="Password" required autocomplete="current-password">
+                </div>
                 <button type="submit" class="login-btn">Secure Login ➔</button>
             </form>
         </div>
@@ -210,7 +240,7 @@
                     <div><b>Remarks:</b> <span id="s-remarks" style="color:var(--success); font-weight:bold;"></span> <input type="text" id="edit-remarks" style="display:none;"></div>
                 </div>
 
-                <div style="margin-top: 30px;">
+                <div style="margin-top: 30px;" id="papers-container">
                     <h3 style="color:var(--secondary); border-bottom: 2px solid var(--border-color); padding-bottom: 5px;">Detailed Subject/Paper Breakdown</h3>
                     <table>
                         <thead><tr><th>Course Code</th><th>Course Name</th><th>Component</th><th>Full Marks</th><th>Marks Obtained</th><th>Credit</th><th>Grade</th><th>Status</th></tr></thead>
@@ -410,6 +440,22 @@
         let currentUserRole = "user";
         let gChart = null; let cChart = null;
 
+        // --- TOAST NOTIFICATIONS ---
+        function showToast(msg, type='success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            let icon = '✅';
+            if(type === 'error') icon = '❌';
+            if(type === 'warning') icon = '⚠️';
+            toast.innerHTML = `<span style="font-size:18px;">${icon}</span> <div>${msg}</div>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'fadeOutToast 0.3s ease-out forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
         // --- CASCADING CURRICULUM LOGIC ---
         const CURRICULUM_DATA = {
             "CCF": {
@@ -494,7 +540,6 @@
             }
         }
 
-        // Custom API fetch wrapper injecting the Auth Token
         function apiFetch(url, options = {}) {
             const token = sessionStorage.getItem('authToken');
             if (!options.headers) options.headers = {};
@@ -502,15 +547,19 @@
             return fetch(url, options);
         }
 
-        // AUTH & BOOTSTRAP
         window.onload = async function() {
+            if(sessionStorage.getItem('showLogoutToast')) {
+                showToast("You have been securely logged out.", "success");
+                sessionStorage.removeItem('showLogoutToast');
+            }
+
             const token = sessionStorage.getItem('authToken');
             if (token) {
                 try {
                     const res = await apiFetch('/api/auth/me');
                     if (res.ok) {
                         const data = await res.json();
-                        completeLogin(data);
+                        completeLogin(data, true);
                     } else { sessionStorage.removeItem('authToken'); }
                 } catch (e) {}
             }
@@ -526,7 +575,7 @@
                 const res = await apiFetch('/api/auth/me');
                 if (res.ok) {
                     const data = await res.json();
-                    completeLogin(data);
+                    completeLogin(data, false);
                 } else {
                     document.getElementById('login-error').style.display = 'block';
                     document.getElementById('login-error').innerText = "Incorrect Username or Password!";
@@ -538,8 +587,10 @@
             }
         }
 
-        function completeLogin(data) {
+        function completeLogin(data, isAutoLogin) {
             document.getElementById('login-overlay').style.display = 'none';
+            if (!isAutoLogin) showToast(`Welcome back, ${data.username}!`, "success");
+            
             currentUserRole = data.role;
             document.getElementById("userBadgeText").innerText = `${data.username.toUpperCase()} (${data.role.toUpperCase()})`;
             if (currentUserRole !== "admin") {
@@ -551,7 +602,11 @@
             }
         }
 
-        function logout() { sessionStorage.removeItem('authToken'); window.location.reload(); }
+        function logout() { 
+            sessionStorage.removeItem('authToken'); 
+            sessionStorage.setItem('showLogoutToast', 'true');
+            window.location.reload(); 
+        }
         
         function switchTab(evt, tabId) {
             document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
@@ -571,7 +626,7 @@
         // --- 1. UPLOAD ---
         async function uploadPDF() {
             const file = document.getElementById("pdfFile").files[0];
-            if (!file) return alert("Select a PDF first.");
+            if (!file) return showToast("Select a PDF first.", "warning");
             document.getElementById("uploadBtn").disabled = true;
             document.getElementById("upload-msg").innerHTML = "<div class='progress-card'>🚀 Starting upload...</div>";
             const formData = new FormData(); 
@@ -641,24 +696,49 @@
             const container = document.getElementById("search-bar-profile");
             const regNo = container.querySelector(".reg-input").value.trim();
             const highlightSem = container.querySelector(".sem-select").value;
+            const curr = container.querySelector(".curr-select").value;
+            const course = container.querySelector(".course-select").value;
+            const subj = container.querySelector(".subject-select").value;
 
-            if (!regNo) return alert("Enter Registration Number.");
+            if (!regNo) return showToast("Enter Registration Number.", "warning");
+            
             const res = await apiFetch(`/api/student/${regNo}`);
-            if (!res.ok) return alert("Student not found.");
+            if (!res.ok) return showToast("Student not found.", "error");
             const data = await res.json();
             
+            // STRICT FILTER VALIDATIONS
+            if (curr !== "ALL" && data.student.curriculum && data.student.curriculum !== "Unknown" && data.student.curriculum !== curr) {
+                return showToast(`Match Failed: Student curriculum is ${data.student.curriculum}, not ${curr}.`, "error");
+            }
+            if (course !== "ALL" && data.student.course && data.student.course !== "Unknown Course" && data.student.course !== course) {
+                return showToast(`Match Failed: Student course is ${data.student.course}, not ${course}.`, "error");
+            }
+            if (subj !== "ALL" && subj !== "AUTO" && container.querySelector(".subject-select").style.display !== 'none' && data.student.subject && data.student.subject !== "Unknown" && data.student.subject !== subj) {
+                return showToast(`Match Failed: Student subject is ${data.student.subject}, not ${subj}.`, "error");
+            }
+            if (highlightSem !== "ALL") {
+                const hasSem = data.semesters.some(s => s.semester === highlightSem && s.marks_obtained);
+                if (!hasSem) showToast(`Warning: No stored data found specifically for Semester ${highlightSem}.`, "warning");
+                else showToast(`Loaded successfully. Viewing Semester ${highlightSem}.`, "success");
+            } else {
+                showToast("Profile loaded successfully.", "success");
+            }
+
             currentLoadedRegNo = data.student.reg_no;
             isEditMode = false;
             
             syncDropdowns("search-bar-profile", data.student.curriculum, data.student.course, data.student.subject);
             
-            const semText = highlightSem !== "ALL" ? ` (Viewing Semester ${highlightSem})` : "";
+            const semText = highlightSem !== "ALL" ? ` (Viewing Semester ${highlightSem} Only)` : "";
             setElementText("profile-student-title", `Student Overview${semText}`);
             
             setElementText("s-name", data.student.name); setElementText("s-cgpa-banner", data.student.cgpa); setElementText("s-grade-banner", data.student.grade);
             setElementText("s-reg", data.student.reg_no); setElementText("s-roll", data.student.roll_no); 
             setElementText("s-curr", data.student.curriculum); setElementText("s-course", data.student.course);
             setElementText("s-subject", data.student.subject); setElementText("s-pass-year", data.student.passout_year); setElementText("s-remarks", data.student.remarks);
+
+            // Hide the paper table if viewing specific semester, because papers lack semester tags in backend.
+            document.getElementById("papers-container").style.display = highlightSem !== "ALL" ? "none" : "block";
 
             renderPaperTable(data.papers || [], false);
             renderSemesterTable(data.semesters || [], false, highlightSem);
@@ -693,9 +773,12 @@
 
         function renderSemesterTable(semesters, editable, highlightSem = "ALL") {
             const tbody = document.getElementById("sem-table-body"); tbody.innerHTML = "";
-            ["I","II","III","IV","V","VI","VII","VIII"].forEach(sem => {
+            let semsToRender = ["I","II","III","IV","V","VI","VII","VIII"];
+            if (highlightSem !== "ALL") semsToRender = [highlightSem]; // STRICT SEMESTER ISOLATION
+
+            semsToRender.forEach(sem => {
                 let s = semesters.find(i => i.semester === sem) || { semester: sem, year: "", full_marks: "", marks_obtained: "", credit: "", sgpa: "" };
-                let trStyle = (sem === highlightSem) ? "background-color: #e0f2fe; border: 2px solid #3b82f6;" : "";
+                let trStyle = (sem === highlightSem) ? "background-color: #f0fdf4; border-left: 4px solid #3b82f6;" : "";
                 
                 if (editable) {
                     tbody.innerHTML += `<tr style="${trStyle}">
@@ -720,11 +803,13 @@
                 document.getElementById("s-"+(f==='cgpa'||f==='grade'?f+'-banner':f)).style.display = isEditMode ? "none" : "inline-block";
             });
             document.getElementById("save-edit-btn-container").style.display = isEditMode ? "block" : "none";
+            
+            const highlightSem = document.querySelector("#search-bar-profile .sem-select").value;
+            document.getElementById("papers-container").style.display = "block"; // Always show papers in edit mode
             document.getElementById("addPaperRowBtn").style.display = isEditMode ? "inline-block" : "none";
             document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks";
             
-            const highlightSem = document.querySelector("#search-bar-profile .sem-select").value;
-            apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { renderPaperTable(data.papers||[], isEditMode); renderSemesterTable(data.semesters||[], isEditMode, highlightSem); });
+            apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { renderPaperTable(data.papers||[], isEditMode); renderSemesterTable(data.semesters||[], isEditMode, isEditMode ? "ALL" : highlightSem); });
         }
 
         async function saveFullProfileEdit() {
@@ -745,22 +830,30 @@
                 passout_year: document.getElementById("edit-pass-year").value, cgpa: document.getElementById("edit-cgpa").value, grade: document.getElementById("edit-grade").value, remarks: document.getElementById("edit-remarks").value,
                 semesters: updatedSemesters, papers: updatedPapers
             };
-            await apiFetch(`/api/admin/update-profile-full/${currentLoadedRegNo}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-            toggleEditMode(); fetchStudentProfile();
+            const res = await apiFetch(`/api/admin/update-profile-full/${currentLoadedRegNo}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            if(res.ok) { showToast("Saved Successfully", "success"); toggleEditMode(); fetchStudentProfile(); }
         }
 
         // --- 3. ISSUANCE ---
         async function loadDocStatus() {
             const container = document.getElementById("search-bar-doc");
             const regNo = container.querySelector(".reg-input").value.trim();
+            const curr = container.querySelector(".curr-select").value;
+            const course = container.querySelector(".course-select").value;
+            const subj = container.querySelector(".subject-select").value;
             const sem = container.querySelector(".sem-select").value;
 
-            if (!regNo) return alert("Enter Registration No.");
+            if (!regNo) return showToast("Enter Registration No.", "warning");
             const res = await apiFetch(`/api/student/${regNo}`);
-            if(!res.ok) return alert("Student not found.");
+            if(!res.ok) return showToast("Student not found.", "error");
             const data = await res.json();
-            currentLoadedRegNo = data.student.reg_no;
             
+            // STRICT FILTERING
+            if (curr !== "ALL" && data.student.curriculum && data.student.curriculum !== "Unknown" && data.student.curriculum !== curr) return showToast("Curriculum mismatch.", "error");
+            if (course !== "ALL" && data.student.course && data.student.course !== "Unknown Course" && data.student.course !== course) return showToast("Course mismatch.", "error");
+            if (subj !== "ALL" && subj !== "AUTO" && container.querySelector(".subject-select").style.display !== 'none' && data.student.subject && data.student.subject !== "Unknown" && data.student.subject !== subj) return showToast("Subject mismatch.", "error");
+
+            currentLoadedRegNo = data.student.reg_no;
             syncDropdowns("search-bar-doc", data.student.curriculum, data.student.course, data.student.subject);
             const semText = sem !== "ALL" ? ` (Semester ${sem})` : "";
             
@@ -780,21 +873,29 @@
             formData.append("certificate_issue_date", document.getElementById("certDate").value);
             formData.append("issued_by", document.getElementById("issuedBySelect").value);
             const res = await apiFetch(`/api/admin/update-issuance-detailed/${currentLoadedRegNo}`, { method: "POST", body: formData });
-            if(res.ok) setElementText("doc-msg", "✅ Saved successfully!");
+            if(res.ok) showToast("Issuance record updated successfully!", "success");
         }
 
         // --- 4. CAREER ---
         async function loadCareerStatus() {
             const container = document.getElementById("search-bar-career");
             const regNo = container.querySelector(".reg-input").value.trim();
+            const curr = container.querySelector(".curr-select").value;
+            const course = container.querySelector(".course-select").value;
+            const subj = container.querySelector(".subject-select").value;
             const sem = container.querySelector(".sem-select").value;
 
-            if (!regNo) return alert("Enter Registration No.");
+            if (!regNo) return showToast("Enter Registration No.", "warning");
             const res = await apiFetch(`/api/student/${regNo}`);
-            if(!res.ok) return alert("Student not found.");
+            if(!res.ok) return showToast("Student not found.", "error");
             const data = await res.json();
-            currentLoadedRegNo = data.student.reg_no;
             
+            // STRICT FILTERING
+            if (curr !== "ALL" && data.student.curriculum && data.student.curriculum !== "Unknown" && data.student.curriculum !== curr) return showToast("Curriculum mismatch.", "error");
+            if (course !== "ALL" && data.student.course && data.student.course !== "Unknown Course" && data.student.course !== course) return showToast("Course mismatch.", "error");
+            if (subj !== "ALL" && subj !== "AUTO" && container.querySelector(".subject-select").style.display !== 'none' && data.student.subject && data.student.subject !== "Unknown" && data.student.subject !== subj) return showToast("Subject mismatch.", "error");
+
+            currentLoadedRegNo = data.student.reg_no;
             syncDropdowns("search-bar-career", data.student.curriculum, data.student.course, data.student.subject);
             const semText = sem !== "ALL" ? ` (Semester ${sem})` : "";
             
@@ -817,7 +918,7 @@
             const file = document.getElementById("proofFile").files[0];
             if (file) formData.append("proof_file", file);
             const res = await apiFetch(`/api/admin/update-status/${currentLoadedRegNo}`, { method: "POST", body: formData });
-            if(res.ok) { setElementText("career-msg", "✅ Career updated!"); loadCareerStatus(); }
+            if(res.ok) { showToast("Career profile updated successfully!", "success"); loadCareerStatus(); }
         }
 
         // --- 6. DIRECTORY ---
@@ -844,9 +945,9 @@
             if (filtered.length === 0) return dirCont.innerHTML = "<p style='text-align:center;'>No matching records.</p>";
             
             let html = `<table><thead><tr>
-                <th>Reg No</th><th>Name</th><th>Curriculum</th><th>Course</th><th>Subject</th><th>Passout</th>
+                <th>Reg No</th><th>Name</th><th>Course / Subject</th><th>Stored Sems</th><th>Passout</th>
                 <th>CGPA</th><th>Grade</th><th>Marksheet Status</th><th>Certificate Status</th>
-                <th>Career Status & Proof</th>${currentUserRole==='admin'?'<th>Action</th>':''}
+                <th>Career Status</th>${currentUserRole==='admin'?'<th>Action</th>':''}
             </tr></thead><tbody>`;
 
             filtered.forEach(st => { 
@@ -855,8 +956,13 @@
                 let proofLink = st.proof_document_path ? `<br><a href="/${st.proof_document_path}" target="_blank">📄 View Proof</a>` : '';
                 let detailsText = st.post_grad_details ? `<br><small>${st.post_grad_details}</small>` : '';
 
+                // NEW: VISUALIZE STORED SEMESTERS TO FIX "WRONG RESULT" CONFUSIONS
+                let storedSems = st.semesters.filter(s => s.marks_obtained).map(s => s.semester).join(", ");
+                if (!storedSems) storedSems = "None";
+
                 html += `<tr>
-                    <td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}</td><td>${st.course}</td><td><b>${st.subject}</b></td><td>${st.passout_year}</td>
+                    <td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}<br>${st.course}<br><b>${st.subject}</b></td>
+                    <td><span class="status-tag tag-yes">${storedSems}</span></td><td>${st.passout_year}</td>
                     <td><b>${st.overall_cgpa}</b></td><td><b>${st.overall_grade}</b></td>
                     <td>${msStatus}</td><td>${certStatus}</td>
                     <td><b>${st.post_grad_status||'Unknown'}</b>${detailsText}${proofLink}</td>
@@ -876,11 +982,11 @@
             applyDirectoryFilters(); 
         }
 
-        async function deleteSingleStudent(regNo) { if(confirm(`Delete ${regNo}?`)) { await apiFetch(`/api/admin/student/${regNo}`, { method: "DELETE" }); fetchDirectory(); } }
-        async function clearAllData() { if(confirm("DELETE ALL records?")) { await apiFetch(`/api/admin/clear-all-students`, { method: "POST" }); fetchDirectory(); } }
+        async function deleteSingleStudent(regNo) { if(confirm(`Delete ${regNo}?`)) { await apiFetch(`/api/admin/student/${regNo}`, { method: "DELETE" }); showToast("Student Deleted", "success"); fetchDirectory(); } }
+        async function clearAllData() { if(confirm("DELETE ALL records?")) { await apiFetch(`/api/admin/clear-all-students`, { method: "POST" }); showToast("Database Cleared", "warning"); fetchDirectory(); } }
         
         function downloadExcel() {
-            if (allStudentsList.length === 0) return alert("No records.");
+            if (allStudentsList.length === 0) return showToast("No records to export.", "warning");
             let csv = "Registration No,Name,Roll No,Curriculum,Course,Subject,Admission Year,Passout Year,CGPA,Grade,Remarks,Marksheet Status,Marksheet Date,Certificate Status,Certificate Date,Issued By,Career Status,Career Details\n";
             allStudentsList.forEach(s => { csv += `"${s.registration_no}","${s.name}","${s.roll_no}","${s.curriculum||'Unknown'}","${s.course}","${s.subject}","${s.admission_year}","${s.passout_year}","${s.overall_cgpa}","${s.overall_grade}","${s.remarks}","${s.marksheet_received?'ISSUED':'PENDING'}","${s.marksheet_issue_date||''}","${s.certificate_received?'ISSUED':'PENDING'}","${s.certificate_issue_date||''}","${s.issued_by||''}","${s.post_grad_status||'Unknown'}","${s.post_grad_details||''}"\n`; });
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `Directory.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -906,10 +1012,13 @@
             
             const repoCont = document.getElementById("repository-container");
             if (list.length === 0) return repoCont.innerHTML = "<p style='text-align:center;'>No matches.</p>";
-            let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Curriculum</th><th>Course</th><th>Subject</th><th>Passout Year</th><th>Action</th></tr></thead><tbody>`;
+            let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Course</th><th>Stored Sems</th><th>Passout Year</th><th>Action</th></tr></thead><tbody>`;
             list.forEach(st => { 
                 let pdf = st.pdf_document_path ? `<a href="/${st.pdf_document_path}" target="_blank"><button class="btn-green">📄 View PDF</button></a>` : "Not Stored";
-                html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}</td><td>${st.course}</td><td><b>${st.subject}</b></td><td>${st.passout_year}</td><td>${pdf}</td></tr>`; 
+                let storedSems = st.semesters.filter(s => s.marks_obtained).map(s => s.semester).join(", ");
+                if (!storedSems) storedSems = "None";
+
+                html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}<br>${st.course}<br><b>${st.subject}</b></td><td><span class="status-tag tag-yes">${storedSems}</span></td><td>${st.passout_year}</td><td>${pdf}</td></tr>`; 
             });
             repoCont.innerHTML = html + `</tbody></table>`;
         }
