@@ -624,6 +624,56 @@
         function setElementText(id, textVal) { const el = document.getElementById(id); if (el) el.innerText = (textVal !== undefined && textVal !== null) ? textVal : "-"; }
         function setElementValue(id, val) { const el = document.getElementById(id); if (el) el.value = (val !== undefined && val !== null) ? val : ""; }
 
+        // --- INTELLIGENT SEMESTER DEDUCTION FIX ---
+        // This function determines the REAL semester of the uploaded marksheet
+        // even if it was uploaded before the backend was updated!
+        function getStoredSemestersList(st) {
+            let sems = [];
+            // 1. If backend properly saved a PDF path specifically for this semester
+            if (st.semesters) {
+                st.semesters.forEach(s => { 
+                    if (s.pdf_path && s.pdf_path.trim() !== "") sems.push(s.semester); 
+                });
+            }
+            // 2. If no explicit pdf_paths exist (legacy upload), mathematically deduce it 
+            // by finding the highest SGPA populated in the summary block!
+            if (sems.length === 0 && st.semesters) {
+                const romanOrder = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+                let highest = -1;
+                st.semesters.forEach(s => {
+                    if (s.marks_obtained || s.sgpa) {
+                        let idx = romanOrder.indexOf(s.semester);
+                        if (idx > highest) highest = idx;
+                    }
+                });
+                if (highest >= 0) sems.push(romanOrder[highest]);
+            }
+            return sems;
+        }
+
+        function getProfileStoredSemesters(data) {
+            let sems = [];
+            if (data.semesters) {
+                data.semesters.forEach(s => { if(s.pdf_path && s.pdf_path.trim() !== "") sems.push(s.semester); });
+            }
+            if (data.papers) {
+                data.papers.forEach(p => { if(p.semester && p.semester !== "Unknown" && !sems.includes(p.semester)) sems.push(p.semester); });
+            }
+            if (sems.length === 0 && data.semesters) {
+                 const romanOrder = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+                 let highest = -1;
+                 data.semesters.forEach(s => {
+                     if (s.marks_obtained || s.sgpa) {
+                         let idx = romanOrder.indexOf(s.semester);
+                         if (idx > highest) highest = idx;
+                     }
+                 });
+                 if (highest >= 0) sems.push(romanOrder[highest]);
+            }
+            return sems;
+        }
+
+
         // --- 1. UPLOAD ---
         async function uploadPDF() {
             const file = document.getElementById("pdfFile").files[0];
@@ -718,11 +768,9 @@
                 return showToast(`Match Failed: Student subject is ${data.student.subject}, not ${subj}.`, "error");
             }
             
-            // STRICT SEMESTER VALIDATION: Require that the PDF was actually uploaded for this semester!
-            if (highlightSem !== "ALL") {
-                const hasSem = data.semesters.some(s => s.semester === highlightSem && s.pdf_path && s.pdf_path.trim() !== "");
-                if (!hasSem) return showToast(`No uploaded marksheet found specifically for Semester ${highlightSem}.`, "error");
-                else showToast(`Loaded successfully. Viewing Semester ${highlightSem}.`, "success");
+            const validSems = getProfileStoredSemesters(data);
+            if (highlightSem !== "ALL" && !validSems.includes(highlightSem)) {
+                return showToast(`No verified marksheet stored specifically for Semester ${highlightSem}.`, "error");
             } else {
                 showToast("Profile loaded successfully.", "success");
             }
@@ -743,7 +791,8 @@
             // Filter Papers explicitly by highlighted Sem
             const papersToRender = highlightSem === "ALL" ? data.papers : data.papers.filter(p => p.semester === highlightSem);
             renderPaperTable(papersToRender, false);
-            renderSemesterTable(data.semesters || [], false, highlightSem);
+            
+            renderSemesterTable(data.semesters || [], false, highlightSem, data.student.pdf_path, validSems);
             
             document.getElementById("profile-area").style.display = "block";
             document.getElementById("addPaperRowBtn").style.display = "none";
@@ -778,15 +827,21 @@
             </tr>`;
         }
 
-        function renderSemesterTable(semesters, editable, highlightSem = "ALL") {
+        function renderSemesterTable(semesters, editable, highlightSem = "ALL", fallbackPdfPath = "", validSems = []) {
             const tbody = document.getElementById("sem-table-body"); tbody.innerHTML = "";
             let semsToRender = ["I","II","III","IV","V","VI","VII","VIII"];
-            if (highlightSem !== "ALL") semsToRender = [highlightSem]; // STRICT SEMESTER ISOLATION
+            if (highlightSem !== "ALL") semsToRender = [highlightSem];
 
             semsToRender.forEach(sem => {
                 let s = semesters.find(i => i.semester === sem) || { semester: sem, year: "", full_marks: "", marks_obtained: "", credit: "", sgpa: "", pdf_path: "" };
                 let trStyle = (sem === highlightSem) ? "background-color: #f0fdf4; border-left: 4px solid #3b82f6;" : "";
-                let pdfBtn = s.pdf_path ? `<a href="/${s.pdf_path}" target="_blank" class="btn-sm-green">📄 View Sem ${sem} PDF</a>` : `<span style="color:#94a3b8; font-size:12px;">Not Stored</span>`;
+                
+                // INTELLIGENT PDF BUTTON ROUTING
+                let pdfBtn = s.pdf_path ? `<a href="/${s.pdf_path}" target="_blank" class="btn-sm-green">📄 View Sem ${sem} PDF</a>` : '';
+                if (!pdfBtn && fallbackPdfPath && validSems.includes(sem)) {
+                    pdfBtn = `<a href="/${fallbackPdfPath}" target="_blank" class="btn-sm-green">📄 View Sem ${sem} PDF</a>`;
+                }
+                if (!pdfBtn) pdfBtn = `<span style="color:#94a3b8; font-size:12px;">Not Stored</span>`;
                 
                 if (editable) {
                     tbody.innerHTML += `<tr style="${trStyle}">
@@ -818,9 +873,10 @@
             document.getElementById("toggleEditBtn").innerText = isEditMode ? "❌ Cancel Editing" : "✏️ Edit Profile & Marks";
             
             apiFetch(`/api/student/${currentLoadedRegNo}`).then(res => res.json()).then(data => { 
+                const validSems = getProfileStoredSemesters(data);
                 const papersToRender = (!isEditMode && highlightSem !== "ALL") ? data.papers.filter(p => p.semester === highlightSem) : data.papers;
                 renderPaperTable(papersToRender || [], isEditMode); 
-                renderSemesterTable(data.semesters||[], isEditMode, isEditMode ? "ALL" : highlightSem); 
+                renderSemesterTable(data.semesters||[], isEditMode, isEditMode ? "ALL" : highlightSem, data.student.pdf_path, validSems); 
             });
         }
 
@@ -860,15 +916,13 @@
             if(!res.ok) return showToast("Student not found.", "error");
             const data = await res.json();
             
-            // STRICT FILTERING
             if (curr !== "ALL" && data.student.curriculum && data.student.curriculum !== "Unknown" && data.student.curriculum !== curr) return showToast("Curriculum mismatch.", "error");
             if (course !== "ALL" && data.student.course && data.student.course !== "Unknown Course" && data.student.course !== course) return showToast("Course mismatch.", "error");
             if (subj !== "ALL" && subj !== "AUTO" && container.querySelector(".subject-select").style.display !== 'none' && data.student.subject && data.student.subject !== "Unknown" && data.student.subject !== subj) return showToast("Subject mismatch.", "error");
             
-            // STRICT SEMESTER CHECK FOR UPLOADED PDF
-            if (sem !== "ALL") {
-                const hasSem = data.semesters.some(s => s.semester === sem && s.pdf_path && s.pdf_path.trim() !== "");
-                if (!hasSem) return showToast(`No uploaded marksheet found specifically for Semester ${sem}.`, "error");
+            const validSems = getProfileStoredSemesters(data);
+            if (sem !== "ALL" && !validSems.includes(sem)) {
+                return showToast(`No marksheet found specifically for Semester ${sem}.`, "error");
             }
 
             currentLoadedRegNo = data.student.reg_no;
@@ -908,14 +962,13 @@
             if(!res.ok) return showToast("Student not found.", "error");
             const data = await res.json();
             
-            // STRICT FILTERING
             if (curr !== "ALL" && data.student.curriculum && data.student.curriculum !== "Unknown" && data.student.curriculum !== curr) return showToast("Curriculum mismatch.", "error");
             if (course !== "ALL" && data.student.course && data.student.course !== "Unknown Course" && data.student.course !== course) return showToast("Course mismatch.", "error");
             if (subj !== "ALL" && subj !== "AUTO" && container.querySelector(".subject-select").style.display !== 'none' && data.student.subject && data.student.subject !== "Unknown" && data.student.subject !== subj) return showToast("Subject mismatch.", "error");
 
-            if (sem !== "ALL") {
-                const hasSem = data.semesters.some(s => s.semester === sem && s.pdf_path && s.pdf_path.trim() !== "");
-                if (!hasSem) return showToast(`No uploaded marksheet found specifically for Semester ${sem}.`, "error");
+            const validSems = getProfileStoredSemesters(data);
+            if (sem !== "ALL" && !validSems.includes(sem)) {
+                return showToast(`No marksheet found specifically for Semester ${sem}.`, "error");
             }
 
             currentLoadedRegNo = data.student.reg_no;
@@ -962,13 +1015,12 @@
                 const mCourse = (course==="ALL") || (st.course === course);
                 const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
                 
-                // STRICT SEMESTER CHECK FOR DIRECTORY
                 let mSem = true; 
+                let validSems = getStoredSemestersList(st);
                 if (sem !== "ALL" || y !== "") { 
                     mSem = false; 
                     st.semesters.forEach(r => { 
-                        // Only count as a match if the physical PDF marksheet exists for this semester
-                        if ((sem === "ALL" || r.semester === sem) && (y === "" || r.year === y) && r.pdf_path && r.pdf_path.trim() !== "") {
+                        if ((sem === "ALL" || validSems.includes(sem)) && (y === "" || r.year === y)) {
                             mSem = true; 
                         } 
                     }); 
@@ -990,13 +1042,12 @@
                 let proofLink = st.proof_document_path ? `<br><a href="/${st.proof_document_path}" target="_blank">📄 View Proof</a>` : '';
                 let detailsText = st.post_grad_details ? `<br><small>${st.post_grad_details}</small>` : '';
 
-                // NEW: VISUALIZE STORED SEMESTERS STRICTLY BY UPLOADED PDF
-                let storedSems = st.semesters.filter(s => s.pdf_path && s.pdf_path.trim() !== "").map(s => s.semester).join(", ");
-                if (!storedSems) storedSems = "None";
+                let validSems = getStoredSemestersList(st).join(", ");
+                if (!validSems) validSems = "NONE";
 
                 html += `<tr>
                     <td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}<br>${st.course}<br><b>${st.subject}</b></td>
-                    <td><span class="status-tag tag-yes">${storedSems}</span></td><td>${st.passout_year}</td>
+                    <td><span class="status-tag tag-yes">${validSems}</span></td><td>${st.passout_year}</td>
                     <td><b>${st.overall_cgpa}</b></td><td><b>${st.overall_grade}</b></td>
                     <td>${msStatus}</td><td>${certStatus}</td>
                     <td><b>${st.post_grad_status||'Unknown'}</b>${detailsText}${proofLink}</td>
@@ -1040,7 +1091,7 @@
                 const mCurr = (curr==="ALL") || (st.curriculum === curr);
                 const mCourse = (course==="ALL") || (st.course === course);
                 const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
-                let mSem = true; if (sem!=="ALL") { mSem=false; st.semesters.forEach(r => { if(r.semester===sem && r.pdf_path && r.pdf_path.trim() !== "") mSem=true; }); }
+                let mSem = true; if (sem!=="ALL") { mSem = getStoredSemestersList(st).includes(sem); }
                 return mSearch && mCurr && mCourse && mSubj && mSem;
             });
             
@@ -1049,8 +1100,14 @@
             let html = `<table><thead><tr><th>Registration No</th><th>Name</th><th>Course</th><th>Passout Year</th><th>Stored Marksheet PDFs</th></tr></thead><tbody>`;
             list.forEach(st => { 
                 
-                // MULTIPLE PDF BUTTONS (ONLY IF PATH EXISTS)
                 let pdfLinks = st.semesters.filter(s => s.pdf_path && s.pdf_path.trim() !== "").map(s => `<a href="/${s.pdf_path}" target="_blank" class="btn-sm-green">Sem ${s.semester}</a>`).join(" ");
+                
+                // FALLBACK FOR LEGACY DATA
+                if (!pdfLinks && st.pdf_document_path) {
+                     let inferred = getStoredSemestersList(st).join(", ");
+                     pdfLinks = `<a href="/${st.pdf_document_path}" target="_blank" class="btn-sm-green">Sem ${inferred}</a>`;
+                }
+
                 if (!pdfLinks) pdfLinks = `<span style="color:#94a3b8;">Not Stored</span>`;
 
                 html += `<tr><td><b>${st.registration_no}</b></td><td>${st.name}</td><td>${st.curriculum||'Unknown'}<br>${st.course}<br><b>${st.subject}</b></td><td>${st.passout_year}</td><td>${pdfLinks}</td></tr>`; 
@@ -1083,7 +1140,7 @@
                 const mCourse = (course==="ALL") || (st.course === course);
                 const mSubj = (subj==="ALL" || subj==="AUTO" || container.querySelector(".subject-select").style.display==='none') || (st.subject === subj);
                 const mYear = (y === "ALL") || (st.passout_year === y);
-                let mSem = true; if (sem!=="ALL") { mSem=false; st.semesters.forEach(r => { if(r.semester===sem && r.pdf_path && r.pdf_path.trim() !== "") mSem=true; }); }
+                let mSem = true; if (sem!=="ALL") { mSem = getStoredSemestersList(st).includes(sem); }
                 return mCurr && mCourse && mSubj && mYear && mSem;
             });
             
